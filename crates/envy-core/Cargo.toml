@@ -1,0 +1,29 @@
+[package]
+name = "envy-core"
+description = "The note model and store — the platform-agnostic half of Envy."
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license = "MIT"
+
+[dependencies]
+fancy-regex.workspace = true
+rayon.workspace = true
+aho-corasick.workspace = true
+memchr.workspace = true
+dunce.workspace = true
+notify.workspace = true
+serde.workspace = true
+chrono.workspace = true
+# Sends emptied/deleted notes to the Windows Recycle Bin rather than erasing
+# them, matching the Mac moving trashed items to the macOS Trash (recoverable).
+trash = "5"
+# Kindle import: the ledger of imported highlights is a SHA-256 fingerprint
+# per record (byte-identical to the Mac's, since the file syncs between
+# machines), stored as a JSON array; imported notes get their mtime stamped.
+sha2 = "0.10"
+serde_json = "1"
+filetime = "0.2"
+
+[dev-dependencies]
+tempfile = "3"

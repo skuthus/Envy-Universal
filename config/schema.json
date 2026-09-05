@@ -1,0 +1,749 @@
+{
+  "$comment": "The single source of truth for Envy's user configuration. Read by the frontend (src/config.ts: defaults, validation, Settings bindings), by Rust (src-tauri/src/config.rs: `envynote config check`, startup keys), and by scripts/gen-skill-docs.mjs (the agent skill's reference tables). Add a setting here first; nothing else may invent a key.",
+  "version": 1,
+  "file": "~/.config/envy/config.md",
+  "themes_dir": "~/.config/envy/themes",
+  "tables": [
+    {
+      "table": "",
+      "title": "General",
+      "keys": [
+        {
+          "key": "vault",
+          "type": "path",
+          "default": "~/Documents/Envy",
+          "label": "Notes folder",
+          "doc": "Where the notes live (\"The Index\"). A folder of plain .md files; created with a welcome note if it does not exist. Changing it here is the same as Settings → Change Location…",
+          "owner": "rust",
+          "legacy": "file:index-path"
+        }
+      ]
+    },
+    {
+      "table": "index",
+      "title": "The Index",
+      "keys": [
+        {
+          "key": "include_subfolders",
+          "type": "bool",
+          "default": false,
+          "label": "Include notes in subfolders",
+          "doc": "Index .md files in subfolders of the vault, not just the top level. Templates/ and .trash/ are never notes either way.",
+          "legacy": "indexIncludeSubfolders"
+        }
+      ]
+    },
+    {
+      "table": "templates",
+      "title": "Templates",
+      "keys": [
+        {
+          "key": "date_format",
+          "type": "string",
+          "default": "yyyy-MM-dd",
+          "label": "Date format",
+          "doc": "Pattern for the {{date}} placeholder when a note is created from a template. Unicode date-format tokens (yyyy, MM, dd, EEEE, MMMM, HH, mm).",
+          "legacy": "templateDateFormat"
+        }
+      ]
+    },
+    {
+      "table": "trash",
+      "title": "Trash",
+      "keys": [
+        {
+          "key": "empty_every",
+          "type": "int",
+          "default": 30,
+          "min": 1,
+          "max": 99,
+          "label": "Empty trash every",
+          "doc": "How often the whole Trash is swept, as a count of `empty_unit`.",
+          "legacy": "trashEmptyIntervalValue"
+        },
+        {
+          "key": "empty_unit",
+          "type": "enum",
+          "values": [
+            "days",
+            "weeks",
+            "months"
+          ],
+          "default": "days",
+          "label": "Unit",
+          "doc": "The unit for `empty_every`.",
+          "legacy": "trashEmptyIntervalUnit"
+        }
+      ]
+    },
+    {
+      "table": "list",
+      "title": "Note list",
+      "keys": [
+        {
+          "key": "focus_editor_on_enter",
+          "type": "bool",
+          "default": true,
+          "label": "Return in the search box moves focus to the editor",
+          "doc": "With it off, Return opens the note but focus stays in the search box.",
+          "legacy": "moveFocusToEditorOnEnter"
+        },
+        {
+          "key": "show_preview",
+          "type": "bool",
+          "default": false,
+          "label": "Show note preview",
+          "doc": "A line of the note's body under each title in the list.",
+          "legacy": "showNotePreview"
+        },
+        {
+          "key": "show_date",
+          "type": "bool",
+          "default": true,
+          "label": "Show date modified",
+          "doc": "The modified date column in the list.",
+          "legacy": "showDateModified"
+        },
+        {
+          "key": "date_style",
+          "type": "enum",
+          "values": [
+            "relative",
+            "smart",
+            "dateTime",
+            "dateOnly"
+          ],
+          "default": "smart",
+          "label": "Date style",
+          "doc": "How the modified date is written: relative (\"3 days ago\"), smart (relative when recent, absolute otherwise), dateTime, or dateOnly.",
+          "legacy": "dateDisplayStyle"
+        },
+        {
+          "key": "density",
+          "type": "enum",
+          "values": [
+            "compact",
+            "cozy",
+            "comfy"
+          ],
+          "default": "compact",
+          "label": "Row density",
+          "doc": "Vertical padding of list rows.",
+          "legacy": "listDensity"
+        },
+        {
+          "key": "folder_display",
+          "type": "enum",
+          "values": [
+            "dot",
+            "name",
+            "off"
+          ],
+          "default": "dot",
+          "label": "Subfolder marker",
+          "doc": "How a note's subfolder shows in its row: a colored dot, the folder name as a chip, or nothing. Only matters with index.include_subfolders.",
+          "legacy": "folderListDisplay"
+        },
+        {
+          "key": "folder_marker_trailing",
+          "type": "bool",
+          "default": true,
+          "label": "Marker after the title",
+          "doc": "Put the subfolder marker after the title (true) or before it (false). The Inbox mark always leads.",
+          "legacy": "folderDotTrailing"
+        },
+        {
+          "key": "show_due",
+          "type": "bool",
+          "default": true,
+          "label": "Show due dates",
+          "doc": "The due-date column and the Due sort option.",
+          "legacy": "showDueSort"
+        },
+        {
+          "key": "keep_pinned_visible",
+          "type": "bool",
+          "default": false,
+          "label": "Keep pinned notes visible",
+          "doc": "Park up to three pinned notes in a strip under the list header so they stay reachable however far the list scrolls.",
+          "legacy": "keepPinnedNotesVisible"
+        },
+        {
+          "key": "inbox_enabled",
+          "type": "bool",
+          "default": true,
+          "label": "Use the Inbox",
+          "doc": "Whether Inbox/ is a capture queue: the badge, the fleeting marks and the inbox: search operator. Off, it is just a folder.",
+          "legacy": "inboxEnabled"
+        },
+        {
+          "key": "new_notes_in_inbox",
+          "type": "bool",
+          "default": false,
+          "label": "New notes start in the Inbox",
+          "doc": "Create new notes in Inbox/ instead of the vault root.",
+          "legacy": "newNotesStartInInbox"
+        },
+        {
+          "key": "show_inbox_in_list",
+          "type": "bool",
+          "default": true,
+          "label": "Show Inbox notes in the main list",
+          "doc": "Off, inbox notes only appear through the inbox: operator.",
+          "legacy": "showInboxInMainList"
+        },
+        {
+          "key": "bold_text",
+          "type": "bool",
+          "default": false,
+          "label": "Bold list text",
+          "doc": "Render note titles in the list in bold.",
+          "legacy": "boldFileListText"
+        },
+        {
+          "key": "sort",
+          "type": "enum",
+          "values": [
+            "name",
+            "date",
+            "due"
+          ],
+          "default": "date",
+          "label": "Sort by",
+          "doc": "The list's sort field. Clicking a column header changes it too.",
+          "legacy": "noteSortField"
+        },
+        {
+          "key": "sort_ascending",
+          "type": "bool",
+          "default": false,
+          "label": "Ascending",
+          "doc": "Sort direction. Names default A→Z, dates newest first, due soonest first.",
+          "legacy": "noteSortAscending"
+        }
+      ]
+    },
+    {
+      "table": "editor",
+      "title": "Editor",
+      "keys": [
+        {
+          "key": "show_tags_in_title_bar",
+          "type": "bool",
+          "default": false,
+          "label": "Show tags in the title bar",
+          "doc": "The open note's tags as chips beside its title.",
+          "legacy": "showTagsInTitleBar"
+        },
+        {
+          "key": "show_folder_in_title_bar",
+          "type": "bool",
+          "default": true,
+          "label": "Show folder in the title bar",
+          "doc": "The open note's subfolder as a chip; only shows for a note in a subfolder.",
+          "legacy": "showFolderInTitleBar"
+        },
+        {
+          "key": "show_due_pill",
+          "type": "bool",
+          "default": true,
+          "label": "Show the due-date pill",
+          "doc": "The due-date pill in the title bar.",
+          "legacy": "showDuePill"
+        },
+        {
+          "key": "link_domain_pills",
+          "type": "bool",
+          "default": true,
+          "label": "Show link domains as pills",
+          "doc": "Render a bare URL as a pill labelled with its domain (and any emoji from [domain_emojis]).",
+          "legacy": "linkDomainPills"
+        },
+        {
+          "key": "require_modifier_for_links",
+          "type": "bool",
+          "default": true,
+          "label": "Ctrl+click to follow links",
+          "doc": "With it on, a plain click on a link places the cursor; Ctrl+click follows. Off, a plain click follows.",
+          "legacy": "requireModifierForLinkClick"
+        },
+        {
+          "key": "link_preview",
+          "type": "enum",
+          "values": [
+            "altClick",
+            "off"
+          ],
+          "default": "altClick",
+          "label": "Link preview",
+          "doc": "Alt+click a wiki-link to peek at the target without leaving the note, or off.",
+          "legacy": "linkPreviewTrigger"
+        },
+        {
+          "key": "plain_text",
+          "type": "bool",
+          "default": false,
+          "label": "Plain text mode",
+          "doc": "Turn live markdown styling off and show the raw text. Also toggled by the togglePlainTextMode shortcut.",
+          "legacy": "plainTextMode"
+        },
+        {
+          "key": "show_interlinks",
+          "type": "bool",
+          "default": true,
+          "label": "Show interlinks",
+          "doc": "The backlinks panel under the note listing every note that links to it.",
+          "legacy": "showBacklinks"
+        },
+        {
+          "key": "zoom",
+          "type": "number",
+          "default": 1,
+          "min": 0.5,
+          "max": 3,
+          "label": "Editor zoom",
+          "doc": "Scale factor for the editor text; Ctrl+= / Ctrl+- / Ctrl+0 change it too.",
+          "legacy": "editorFontZoom"
+        }
+      ]
+    },
+    {
+      "table": "footer",
+      "title": "Footer",
+      "keys": [
+        {
+          "key": "words",
+          "type": "bool",
+          "default": true,
+          "label": "Word count",
+          "doc": "The open note's word count in the footer."
+        },
+        {
+          "key": "characters",
+          "type": "bool",
+          "default": true,
+          "label": "Character count",
+          "doc": "The open note's character count in the footer."
+        },
+        {
+          "key": "notes",
+          "type": "bool",
+          "default": true,
+          "label": "Note count",
+          "doc": "The whole vault's note total in the footer.",
+          "legacy": "showFooterVaultCounts"
+        },
+        {
+          "key": "folders",
+          "type": "bool",
+          "default": true,
+          "label": "Folder count",
+          "doc": "The whole vault's folder total in the footer. Only shown when index.include_subfolders is on, since folders do not factor into Envy otherwise."
+        }
+      ]
+    },
+    {
+      "table": "footer_clock",
+      "title": "Footer clock",
+      "keys": [
+        {
+          "key": "show",
+          "type": "bool",
+          "default": false,
+          "label": "Show a clock in the footer",
+          "doc": "",
+          "legacy": "showFooterClock"
+        },
+        {
+          "key": "show_date",
+          "type": "bool",
+          "default": false,
+          "label": "Show the date too",
+          "doc": "",
+          "legacy": "showFooterClockDate"
+        },
+        {
+          "key": "date_format",
+          "type": "enum",
+          "values": [
+            "short",
+            "medium",
+            "full",
+            "numeric"
+          ],
+          "default": "short",
+          "label": "Date format",
+          "doc": "short (Tue 2 Sep), medium (2 Sep 2026), full (Tuesday, 2 September 2026), numeric (2026-09-02).",
+          "legacy": "footerClockDateFormat"
+        },
+        {
+          "key": "only_when_fullscreen",
+          "type": "bool",
+          "default": false,
+          "label": "Only when full screen",
+          "doc": "Show the clock only while the window is fullscreen, where the bar is hidden.",
+          "legacy": "showFooterClockOnlyWhenFullScreen"
+        }
+      ]
+    },
+    {
+      "table": "system",
+      "title": "System",
+      "keys": [
+        {
+          "key": "autostart",
+          "type": "bool",
+          "default": false,
+          "label": "Start Envy at login",
+          "doc": "Installs or removes the XDG autostart entry. Rust applies this at launch and whenever it changes.",
+          "owner": "rust"
+        },
+        {
+          "key": "hide_on_focus_loss",
+          "type": "bool",
+          "default": false,
+          "label": "Hide when Envy loses focus",
+          "doc": "Hide the window when another app takes focus, unless Keep on Top is on.",
+          "legacy": "hideOnFocusLoss"
+        },
+        {
+          "key": "restore_focus_on_summon",
+          "type": "bool",
+          "default": true,
+          "label": "Restore focus when summoned",
+          "doc": "Put the cursor back where it was (search box or editor) when the window is shown again.",
+          "legacy": "restoreFocusOnSummon"
+        },
+        {
+          "key": "keep_on_top",
+          "type": "bool",
+          "default": false,
+          "label": "Keep on top",
+          "doc": "Keep the window above others and never hide it on focus loss. On Hyprland this pins the window, which only a floating window can be, so it waits while system.tiled is on. Toggled from the bar icon's menu.",
+          "owner": "rust",
+          "legacy": "file:keep-on-top"
+        },
+        {
+          "key": "hyprland_bind",
+          "type": "bool",
+          "default": false,
+          "label": "Bind Ctrl+Alt+Return in Hyprland",
+          "doc": "Adds one line to ~/.config/hypr/bindings.lua that loads Envy's Hyprland file (the Ctrl+Alt+Return summon, the Ctrl+Alt+C center bind and the floating window rule) and reloads Hyprland; off removes that line again. Only the line Envy added is ever touched: a bind you wrote yourself is left alone, and Envy will not add a second one beside it.",
+          "owner": "rust"
+        },
+        {
+          "key": "tiled",
+          "type": "bool",
+          "default": false,
+          "label": "Envy is tiled",
+          "doc": "On Hyprland, tile the main window like any other. Off (the default) it floats as a centered panel. Applied when the window appears and again live when this changes.",
+          "owner": "rust"
+        },
+        {
+          "key": "popout_tiled",
+          "type": "bool",
+          "default": false,
+          "label": "Pop-out notes are tiled",
+          "doc": "On Hyprland, tile the windows that Pop Out and Alt+Shift-click open. Off (the default) they float. Applied to each pop-out as it appears and to open ones live when this changes.",
+          "owner": "rust"
+        }
+      ]
+    },
+    {
+      "table": "appearance",
+      "title": "Appearance",
+      "keys": [
+        {
+          "key": "theme",
+          "type": "theme",
+          "values": [
+            "omarchy",
+            "system",
+            "dark",
+            "light"
+          ],
+          "default": "system",
+          "label": "Theme",
+          "doc": "omarchy follows the current Omarchy theme; system follows the light/dark preference with the Envious palette; dark and light pin an Envious face. Any other value names a theme file, ~/.config/envy/themes/<value>.md, which overlays the Envious face of its `mode`. In omarchy mode a theme file named after the current Omarchy theme (for example tokyo-night.md) overlays the derived colors automatically.",
+          "legacy": "appearanceMode"
+        },
+        {
+          "key": "font",
+          "type": "enum",
+          "values": [
+            "omarchy",
+            "custom"
+          ],
+          "default": "custom",
+          "label": "Font",
+          "doc": "omarchy follows the Omarchy monospace font; custom uses `font_family`.",
+          "legacy": "uiFontSource"
+        },
+        {
+          "key": "font_family",
+          "type": "string",
+          "default": "",
+          "label": "Font family",
+          "doc": "A fontconfig family name, used when `font` is custom.",
+          "legacy": "uiFontCustom"
+        },
+        {
+          "key": "font_features",
+          "type": "string",
+          "default": "",
+          "label": "OpenType features",
+          "doc": "Comma-separated feature tags applied to all text, for example `ss01`. Empty means automatic: `ss01` for a Cascadia family (its cursive italic letters), nothing for other fonts."
+        },
+        {
+          "key": "layout",
+          "type": "enum",
+          "values": [
+            "vertical",
+            "horizontal"
+          ],
+          "default": "vertical",
+          "label": "Layout",
+          "doc": "vertical: list above the note. horizontal: list beside it. Also toggled by the toggleLayout shortcut.",
+          "legacy": "layoutMode"
+        },
+        {
+          "key": "text_size",
+          "type": "number",
+          "values": [
+            0.8,
+            0.9,
+            0.95,
+            1,
+            1.15,
+            1.3,
+            1.5
+          ],
+          "default": 1,
+          "label": "Interface text size",
+          "doc": "Scale for the chrome (list, search box, footer). The Settings menu offers the listed steps; any value in range works from the file.",
+          "min": 0.5,
+          "max": 2,
+          "legacy": "interfaceTextSize"
+        },
+        {
+          "key": "fade_focus_highlight",
+          "type": "bool",
+          "default": false,
+          "label": "Fade the focus highlight",
+          "doc": "Dim the list selection when the list does not have focus.",
+          "legacy": "fadeFocusHighlight"
+        }
+      ]
+    },
+    {
+      "table": "kindle",
+      "title": "Kindle import",
+      "keys": [
+        {
+          "key": "enabled",
+          "type": "bool",
+          "default": false,
+          "label": "Import Kindle highlights",
+          "doc": "Watch for a plugged-in Kindle and offer to import its clippings.",
+          "legacy": "kindleImportEnabled"
+        },
+        {
+          "key": "title_reference",
+          "type": "enum",
+          "values": [
+            "page",
+            "location",
+            "both",
+            "none"
+          ],
+          "default": "page",
+          "label": "Reference in the highlight title",
+          "doc": "What each imported highlight's title carries besides the book: the page, the Kindle location, both, or neither.",
+          "legacy": "kindleTitleReference"
+        },
+        {
+          "key": "omit_author",
+          "type": "bool",
+          "default": false,
+          "label": "Omit the author",
+          "doc": "Leave the author line out of imported highlights.",
+          "legacy": "kindleBodyOmitAuthor"
+        },
+        {
+          "key": "omit_location",
+          "type": "bool",
+          "default": false,
+          "label": "Omit the location",
+          "doc": "Leave the Kindle location out of imported highlights.",
+          "legacy": "kindleBodyOmitLocation"
+        }
+      ]
+    }
+  ],
+  "maps": [
+    {
+      "table": "shortcuts",
+      "title": "Shortcuts",
+      "value_type": "chord",
+      "doc": "Overrides for keyboard shortcuts, `id = \"Chord\"`. Only ids listed in shortcuts.md are valid; an id that is absent keeps its default. Chords are written as fixed-order modifiers plus a key, for example \"Ctrl+Alt+N\" or \"Ctrl+Shift+ArrowDown\". The four global ids need a Hyprland bind on Wayland; see the skill.",
+      "legacy": "customShortcuts"
+    },
+    {
+      "table": "tag_colors",
+      "title": "Tag colors",
+      "value_type": "color",
+      "doc": "`tagname = \"#rrggbb\"`. The key is the tag name without its leading #; the value keeps the #. A tag not listed uses the theme's tag color.",
+      "legacy": "tagColors"
+    },
+    {
+      "table": "folder_colors",
+      "title": "Folder colors",
+      "value_type": "color",
+      "doc": "`\"Folder/Sub\" = \"#rrggbb\"` for the subfolder dot and chip. Paths are relative to the vault; quote keys that contain / or spaces.",
+      "legacy": "folderColors"
+    },
+    {
+      "table": "domain_emojis",
+      "title": "Domain emojis",
+      "value_type": "emoji",
+      "doc": "`\"github.com\" = \"🐙\"`, shown on link pills for that domain.",
+      "legacy": "domainEmojis"
+    }
+  ],
+  "theme_tokens": {
+    "doc": "Keys of a theme file's toml block, ~/.config/envy/themes/<name>.md. Every color is optional: a missing one is filled from the base face (the Omarchy-derived theme in omarchy mode, else Envious dark/light by `mode`). Colors are #rrggbb or #rrggbbaa.",
+    "meta": [
+      {
+        "key": "mode",
+        "type": "enum",
+        "values": [
+          "dark",
+          "light"
+        ],
+        "doc": "Which Envious face this theme overlays and whether the UI treats it as dark."
+      },
+      {
+        "key": "font",
+        "type": "string",
+        "doc": "Optional fontconfig family; omitted means the appearance.font setting applies."
+      },
+      {
+        "key": "font_size",
+        "type": "string",
+        "doc": "Optional CSS size for the editor, for example \"15px\"."
+      }
+    ],
+    "colors": [
+      {
+        "key": "text",
+        "envy": "text",
+        "doc": "Body text."
+      },
+      {
+        "key": "background",
+        "envy": "background",
+        "doc": "Editor background."
+      },
+      {
+        "key": "marker",
+        "envy": "marker",
+        "doc": "Markdown syntax marks (#, *, -, backticks)."
+      },
+      {
+        "key": "link",
+        "envy": "link",
+        "doc": "Links and wiki-links."
+      },
+      {
+        "key": "due",
+        "envy": "due",
+        "doc": "A due date that is not close."
+      },
+      {
+        "key": "due_soon",
+        "envy": "dueSoon",
+        "doc": "A due date within a few days."
+      },
+      {
+        "key": "due_overdue",
+        "envy": "dueOverdue",
+        "doc": "A due date in the past."
+      },
+      {
+        "key": "code_background",
+        "envy": "codeBackground",
+        "doc": "Inline code and fenced block background."
+      },
+      {
+        "key": "tag",
+        "envy": "tag",
+        "doc": "Tag text."
+      },
+      {
+        "key": "tag_background",
+        "envy": "tagBackground",
+        "doc": "Tag pill background."
+      },
+      {
+        "key": "highlight",
+        "envy": "highlight",
+        "doc": "==highlighted== text background."
+      },
+      {
+        "key": "highlight_text",
+        "envy": "highlightText",
+        "doc": "Ink on the highlight background."
+      },
+      {
+        "key": "flag",
+        "envy": "flag",
+        "doc": "A vivid accent: the inbox badge."
+      },
+      {
+        "key": "selection",
+        "envy": "selection",
+        "doc": "The note list's selected row."
+      },
+      {
+        "key": "selected_text",
+        "envy": "selectedText",
+        "doc": "The editor's text-selection background."
+      },
+      {
+        "key": "focus_highlight",
+        "envy": "focusHighlight",
+        "doc": "The keyboard focus ring."
+      },
+      {
+        "key": "file_list_background",
+        "envy": "fileListBackground",
+        "doc": "Note list and search box background."
+      },
+      {
+        "key": "blockquote",
+        "envy": "blockquote",
+        "doc": "Blockquote text; also mixed into footer/chrome text."
+      },
+      {
+        "key": "completed_task",
+        "envy": "completedTask",
+        "doc": "A checked task's text."
+      },
+      {
+        "key": "footnote",
+        "envy": "footnote",
+        "doc": "Footnote markers and text."
+      },
+      {
+        "key": "checked_checkbox",
+        "envy": "checkedCheckbox",
+        "doc": "The checked box glyph."
+      },
+      {
+        "key": "title_bar_background",
+        "envy": "titleBarBackground",
+        "doc": "The note title bar."
+      }
+    ]
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "skuthus.envy",
+  "name": "Envy",
+  "version": "1.1.0",
+  "author": "skuthus",
+  "license": "MIT",
+  "homepage": "https://github.com/skuthus/Envy-Linux",
+  "description": "Envy's eye in the bar: open while the app is on screen, squinting while only the pinned note is, closed while it's hidden. Gone while Envy isn't running unless the widget's showWhenClosed setting is true. Click to summon, right-click for the app menu.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Envy",
+    "description": "Envy's eye. Left click summons or hides Envy (or the pinned note); right click opens the app menu. Set showWhenClosed to keep a dim, clickable eye in the bar while Envy isn't running.",
+    "category": "Productivity",
+    "aliases": [
+      "envy",
+      "notes"
+    ],
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "showWhenClosed": false
+    }
+  }
+}

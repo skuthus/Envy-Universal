@@ -1,0 +1,2598 @@
+/* Every color here is a var fed from theme.ts. On Omarchy those tokens are
+   derived from the current theme's colors.toml; Envious light/dark remain a
+   Settings override. Surfaces carry alpha so Hyprland blur shows through. */
+
+* { box-sizing: border-box; }
+
+html.windows .linux-only { display: none; }
+
+:root {
+  /* Chrome scale and row padding, driven from Settings. Separate from the
+     editor's own zoom: wanting bigger UI is not the same as wanting bigger
+     prose, and the Mac keeps them apart for the same reason. */
+  --envy-ui-scale: 1;
+  --envy-row-padding: 1px;
+  /* How far the chrome's spacing has grown with the editor zoom: 1 at 100%
+     and below, the zoom itself up to 1.6. Set by applyEditorZoom; every inset
+     and padding that would otherwise crowd bigger text multiplies by it. */
+  --envy-zoom-space: 1;
+  /* Matches the ::-webkit-scrollbar width below. The scrolling panes reserve a
+     stable gutter of this width and subtract it from their trailing padding, so
+     their content ends the same distance from the pane edge as the leading
+     inset — symmetric margins whether or not a scrollbar is showing. */
+  --envy-scrollbar-width: 8px;
+  --envy-radius: 0px;
+  --envy-radius-lg: 0px;
+  --envy-focus-thickness: 1px;
+  --envy-font-family: ui-monospace, monospace;
+  --envy-mono-family: ui-monospace, monospace;
+  --envy-font-features: normal;
+  /* Regular weight, matching the terminal — no synthetic emboldening. */
+  --envy-font-weight: 400;
+  --envy-font-embolden: 0;
+  /* The inset shared by the list, the title bar, the editor and the footer, so
+     text starts in the same column down the whole window and the left and right
+     margins match. */
+  --envy-inset: calc(12px * var(--envy-zoom-space));
+  /* Ink for the status bar. Secondary text is pitched for a paragraph at note
+     size; at the footer's 11px, and on a theme whose body text is near-white
+     on black, the same colour reads as faint. Halfway to body text keeps it
+     visibly quieter than the note without disappearing. */
+  --envy-chrome-text: color-mix(in srgb, var(--envy-blockquote) 50%, var(--envy-text));
+}
+
+/* --- Scrollbars ------------------------------------------------------------
+   Overlay-style: the track is always invisible and the thumb only appears
+   while the pointer is over the pane it belongs to, so a scrollbar never sits
+   there as permanent furniture beside the text. Colours come from the theme,
+   so this follows light/dark with everything else.
+
+   `color-scheme` is set on <html> from the theme too (see syncTheme) — without
+   it the engine paints native light-mode controls whatever the CSS says. */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 0;
+  border: 2px solid transparent;
+  background-clip: content-box;
+  transition: background 140ms ease;
+}
+:hover::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--envy-marker) 85%, transparent);
+  background-clip: content-box;
+}
+:hover::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--envy-text) 45%, transparent);
+  background-clip: content-box;
+}
+/* The editor is the exception to the hover-only rule: a note taller than the
+   pane shows its scrollbar thumb the whole time, not just while the pointer is
+   over it, so "this note scrolls" is visible the moment it opens rather than
+   only once you happen to hover. It still brightens on direct hover. */
+.cm-editor .cm-scroller::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--envy-marker) 85%, transparent);
+  background-clip: content-box;
+}
+.cm-editor .cm-scroller::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--envy-text) 45%, transparent);
+}
+
+html, body {
+  margin: 0;
+  height: 100%;
+  /* The shell itself never scrolls — only the list and the editor do. Without
+     this, any flex-sizing mistake inside silently turns into a scrolled window
+     with the search box pushed out of view rather than a visible glitch. */
+  overflow: hidden;
+  /* Transparent so the compositor can blur whatever the surfaces don't cover.
+     #app (and the popover/pop-out bodies) carry the themed, alpha'd fill. */
+  background: transparent;
+  color: var(--envy-text);
+  font-family: var(--envy-font-family);
+  font-weight: var(--envy-font-weight);
+  /* `auto` keeps LCD subpixel AA. Forcing `antialiased` is grayscale and
+     reads softer on a 1× panel. Kerning off because the default face is mono
+     and fractional advances are how WebKit blurs a grid of glyphs. */
+  -webkit-font-smoothing: auto;
+  text-rendering: optimizeLegibility;
+  font-synthesis: none;
+  font-kerning: none;
+  /* Stylistic sets and the like, from the font_features setting; Cascadia's
+     cursive italic letters live behind ss01 and are set here automatically. */
+  font-feature-settings: var(--envy-font-features);
+  -webkit-text-stroke: var(--envy-font-embolden) currentColor;
+}
+
+#app,
+body.popover,
+body.popout-window {
+  background: var(--envy-background);
+}
+
+/* --- App shell -----------------------------------------------------------
+   One search box on top, list and editor side by side beneath it. The Mac
+   supports flipping this to a vertical split (⌘⇧L); that's not wired up yet,
+   so the layout is intentionally a single flex row for now rather than a
+   half-built abstraction. */
+
+#app { display: flex; flex-direction: column; height: 100%; }
+
+#search-bar {
+  display: flex;
+  align-items: center;
+  gap: calc(8px * var(--envy-zoom-space));
+  /* One rule, on the bar, between the field and the sort header. The field
+     itself carries none, so the space above the list reads as all field. */
+  padding: calc(6px * var(--envy-zoom-space)) var(--envy-inset) calc(2px * var(--envy-zoom-space));
+  background: var(--envy-title-bar-background);
+  border-bottom: 1px solid color-mix(in srgb, var(--envy-marker) 40%, transparent);
+  /* No OS title bar on this variant; the search chrome is the drag handle.
+     Super+drag still works everywhere via Hyprland. */
+  -webkit-app-region: drag;
+}
+#search-bar input,
+#search-bar button,
+#inbox-badge,
+#search-wrap,
+.window-controls {
+  -webkit-app-region: no-drag;
+}
+
+/* Windows window buttons live in the existing search/title chrome rather than
+   a second OS title strip. Hidden on Linux. */
+.window-controls {
+  display: none;
+  flex: none;
+  align-self: stretch;
+  align-items: stretch;
+  margin: calc(-6px * var(--envy-zoom-space)) calc(-1 * var(--envy-inset)) calc(-2px * var(--envy-zoom-space)) 4px;
+}
+html.windows .window-controls { display: flex; }
+.window-controls button {
+  width: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--envy-chrome-text);
+  cursor: default;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.window-controls button svg {
+  width: 10px;
+  height: 10px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.15;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.window-controls button:hover {
+  color: var(--envy-text);
+  background: color-mix(in srgb, var(--envy-marker) 22%, transparent);
+}
+.window-controls button[data-win="close"]:hover {
+  color: #fff;
+  background: var(--envy-due-overdue);
+}
+#search-wrap { position: relative; flex: 1; display: flex; }
+/* Behind the field, aligned to the same text metrics, showing the whole
+   completed value — the typed part is invisible against the real text, so only
+   the remainder reads as a suggestion. */
+#search-ghost {
+  position: absolute;
+  inset: 0;
+  padding: 4px 0;
+  font-size: var(--envy-font-size);
+  line-height: normal;
+  color: var(--envy-marker);
+  pointer-events: none;
+  white-space: pre;
+  overflow: hidden;
+  border: none;
+}
+#search-ghost.hidden { display: none; }
+
+/* The editor's inline ghost completion for [[links]] and #tags — the same dim
+   marker colour the search box's ghost uses, and inert so it can't catch a
+   click or a selection. */
+.cm-ghost-completion {
+  color: var(--envy-marker);
+  pointer-events: none;
+}
+/* A slash command names what Tab would do, since the grey text alone ("table")
+   wouldn't say that anything is about to be built. */
+.cm-ghost-hint {
+  opacity: 0.75;
+  font-style: italic;
+}
+
+#search {
+  flex: 1;
+  font: inherit;
+  font-size: var(--envy-font-size);
+  padding: 4px 0;
+  border-radius: 0;
+  border: none;
+  background: transparent;
+  color: var(--envy-text);
+}
+#search:focus {
+  outline: none;
+  box-shadow: none;
+}
+#search::placeholder {
+  color: var(--envy-marker);
+  font-style: italic;
+}
+
+/* The fleeting-note count, left of the field. A bracketed count — `[165]` in
+   amber with dim brackets — rather than a filled badge, so it reads like the
+   rest of the flat, monospace chrome instead of a GUI pill. The amber still
+   means "waiting". */
+#inbox-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: baseline;
+  /* No leading padding: the bracket starts on the same inset as the sort
+     header and the rows beneath it. */
+  padding: 0 2px 0 0;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  border: none;
+  border-radius: 0;
+  background: none;
+  color: var(--envy-flag);
+  cursor: default;
+}
+#inbox-badge::before {
+  content: '[';
+}
+#inbox-badge::after {
+  content: ']';
+}
+#inbox-badge::before,
+#inbox-badge::after {
+  color: var(--envy-marker);
+}
+#inbox-badge:hover::before,
+#inbox-badge:hover::after {
+  color: var(--envy-text);
+}
+#inbox-badge.hidden { display: none; }
+/* In the inbox view it is a back chevron, not a count — the same control doing
+   the opposite job, so it drops the amber that means "waiting". */
+#inbox-badge.leaving {
+  color: var(--envy-blockquote);
+}
+
+/* Vertical is the primary layout and the default — list on top, note beneath,
+   the Notational Velocity arrangement Envy-Linux opens with. The split
+   starts at 0.38 of the height so the note has the room. Horizontal is the
+   alternate (Ctrl+Shift+L), a sidebar list beside the note. */
+
+/* One text size for the whole interface — search, list, title bar, footer —
+   tied to the same `--envy-font-size` the editor uses, so the app reads at a
+   single consistent size like a TUI rather than each section picking its own.
+   Only markdown headings (`.envy-h*`, in em) step away from it; bold is a
+   weight, not a size. Previously each of these set its own px value (title 13,
+   preview/date 11, search 15) scaled by the Interface Text Size setting, which
+   left them all different from each other and from the editor. */
+#search-bar,
+#list-pane,
+#note-title-bar,
+#footer,
+#interlinks,
+.row-title,
+.row-date,
+.row-meta,
+#search { font-size: var(--envy-font-size); }
+
+/* --- Focus highlight -------------------------------------------------------
+   A border around whichever pane has keyboard focus. With "fade out" on it
+   dissolves after a moment, so it reads as a brief "you're here now" rather
+   than a permanent outline around wherever the cursor happens to be. */
+#list-pane, #editor-pane {
+  outline: var(--envy-focus-thickness, 1px) solid transparent;
+  outline-offset: -1px;
+  transition: outline-color 120ms ease;
+}
+#list-pane:focus-within, #editor-pane:focus-within {
+  outline-color: var(--envy-focus-highlight);
+}
+body.fade-focus #list-pane:focus-within,
+body.fade-focus #editor-pane:focus-within {
+  animation: envy-focus-fade 1.4s ease-out forwards;
+}
+@keyframes envy-focus-fade {
+  0%, 30% { outline-color: var(--envy-focus-highlight); }
+  100% { outline-color: transparent; }
+}
+
+#panes { display: flex; flex: 1; min-height: 0; min-width: 0; }
+#panes.vertical { flex-direction: column; }
+#panes.horizontal { flex-direction: row; }
+
+#list-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  background: var(--envy-file-list-background);
+}
+/* `scrollbar-gutter: stable` so the gutter is reserved whether or not the list
+   currently overflows. Without it the rows gain 10px the moment a search
+   narrows the results enough to remove the scrollbar, and the columns shift
+   out from under their headings as you type. */
+#list { flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; will-change: scroll-position; }
+/* "Press ⏎ to create …": a plain line at the foot of the list, in the same
+   dim marker colour as the rest of the chrome and aligned with the rows. Not
+   part of the list's scroll, so it stays in view as the promise of what
+   Return does; ellipsized rather than wrapped, since a long title is still
+   one line in the box above. */
+#create-hint {
+  flex: none;
+  padding: calc(4px * var(--envy-zoom-space)) var(--envy-inset) calc(6px * var(--envy-zoom-space));
+  border-top: 1px solid color-mix(in srgb, var(--envy-marker) 30%, transparent);
+  color: var(--envy-marker);
+  font-size: calc(var(--envy-font-size) * 0.85);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+#create-hint.hidden { display: none; }
+/* The list is focusable (tabindex="-1") so it can answer arrows, j/k, Return
+   and Delete itself. Its own outline is suppressed — the pane already draws the
+   focus border above, and two rings around the same thing reads as an error
+   state. What marks the list as *the* focused area instead is a ring on the
+   highlighted row: the row highlight alone means "this is the note the editor
+   is showing", which is true whether or not the keyboard is here. */
+#list:focus, #list:focus-visible { outline: none; }
+#list-pane:focus-within .row.highlighted {
+  box-shadow: inset 2px 0 0 var(--envy-link),
+    inset 0 0 0 1px var(--envy-focus-highlight);
+}
+
+/* --- Sticky pinned strip ---------------------------------------------------
+   "Keep pinned notes visible while scrolling": the leading pinned rows lifted
+   out of the scrolling list into the fixed chrome, with a divider beneath so
+   they read as their own zone rather than three rows that happen to stick.
+   Sits outside the scrolling element like the header does, so it never pays
+   the scrollbar gutter — hence the flat 12px trailing padding on its rows. */
+#pinned-strip {
+  flex: none;
+  padding: 3px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--envy-marker) 30%, transparent);
+}
+#pinned-strip.hidden { display: none; }
+/* The strip sits outside the scrolling list, so it pays no gutter: a plain
+   inset on the trailing side lands its content the same distance from the pane
+   edge as the scrolling rows (which reserve the gutter and subtract it). */
+#pinned-strip > .row { padding-right: var(--envy-inset); }
+
+/* The list pane is the sized one in both orientations; the editor takes the
+   rest. Sizing the same element either way keeps one persisted fraction
+   meaningful per orientation rather than translating between them. */
+#panes.vertical > #list-pane { height: 38%; flex: none; }
+#panes.horizontal > #list-pane { width: 280px; flex: none; min-width: 220px; }
+
+/* --- List columns ----------------------------------------------------------
+   The header and every row share one column definition, so a value always sits
+   under its own heading and starts at the same x on every line.
+
+   They have to share it explicitly because each row is its own grid — there is
+   no single grid spanning the list for them to be tracks of. With `auto`
+   columns that meant every row sized its own trailing columns to its own
+   content, so a row carrying a due date pushed its date left of the rows
+   without one, and the Date column visibly stepped in and out down the list.
+
+   There is one value column, not two. A row shows whichever date it is sorted
+   by — the due date or the modified date, never both — so Due and Date are two
+   sort buttons over a single column, which is what the Mac's NoteRow does.
+
+   The width is measured in JS (`syncDateColumnWidth`) against the live font
+   and date style, so a smart "Yesterday, 12:46 PM" in Omarchy Mono is never
+   clipped. A hardcoded px was wrong the moment the face changed. Each row is
+   its own grid, so the value is a shared custom property rather than `auto`
+   (which would let rows with shorter dates indent).
+
+   Reserved only when there is something to put in it — the "Show date
+   modified" setting governs the slot entirely — so a list without it keeps the
+   full width for titles rather than holding open a column that never fills. */
+#list-pane { --envy-date-col: 0px; }
+
+#list-header,
+.row {
+  display: grid;
+  /* minmax(0, 1fr) rather than 1fr: a grid track's default minimum is its
+     content, so a long title would refuse to shrink and push the column off
+     the right edge instead of ellipsizing. */
+  grid-template-columns: minmax(0, 1fr) var(--envy-date-col);
+  gap: 8px;
+}
+
+.sort-button[data-field='name'], .row-main { grid-column: 1; }
+.sort-group, .row-date { grid-column: 2; }
+
+/* Both sort buttons share the value column, since either one can be the field
+   on display there. Pushed to the trailing edge so the headings sit over the
+   values, which are right-aligned in that same column. */
+.sort-group {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+#list-header {
+  align-items: center;
+  padding: calc(2px * var(--envy-zoom-space)) var(--envy-inset) calc(4px * var(--envy-zoom-space));
+  /* The header sits *outside* the scrolling element, so it pays no gutter: a
+     plain inset on the trailing side lands its content the same distance from
+     the pane edge as the rows (which reserve the gutter and subtract it), so
+     the headings stay over their values and both match the leading inset. */
+  border-bottom: 1px solid color-mix(in srgb, var(--envy-marker) 30%, transparent);
+}
+.sort-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font: inherit;
+  /* A touch smaller than the rows beneath it — the sort header is chrome. */
+  font-size: 11px;
+  font-weight: 600;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--envy-blockquote);
+  cursor: default;
+}
+.sort-button.active { color: var(--envy-text); }
+.sort-button:hover { color: var(--envy-text); }
+/* 9px, matching the Mac's chevron, and scaled with everything else. */
+.sort-arrow { font-size: calc(9px * var(--envy-ui-scale)); }
+
+/* The only thing separating the list from the editor, since both panes share
+   the window background — as they do on the Mac, where the separation comes
+   from NSSplitView's own thin divider rather than a change of colour.
+
+   Two things were wrong with the previous version. It transitioned the
+   `background` *shorthand*, which left the computed value settled at a fully
+   transparent colour — the line was not faint, it was not drawn at all. And the
+   colour it never reached was `--envy-marker` at 40%, about a tenth of a percent
+   of white over a near-black background, which would have been close to
+   invisible even had it painted. It now uses the marker at full strength, which
+   is the same hairline weight used elsewhere in the chrome, and transitions only
+   the colour property that actually changes on hover. */
+#divider {
+  flex: none;
+  /* content-box, against the global border-box, and load-bearing.
+     The padding widens the grab area to five pixels while `height` stays the
+     one pixel that actually gets painted — `background-clip: content-box` below
+     draws the content box alone, so the padding stays invisible but grabbable.
+     Under border-box the padding is subtracted *from* the height instead:
+     1px − 4px of padding clamps the content box to zero, leaving nothing to
+     paint. The divider was not faint, it was never drawn, in either
+     orientation. */
+  box-sizing: content-box;
+  background-color: var(--envy-marker);
+  transition: background-color 120ms ease;
+}
+/* background-color, not the shorthand — the shorthand is what the transition
+   above stumbled over. */
+#divider:hover,
+#divider.dragging { background-color: var(--envy-link); }
+#panes.vertical > #divider { height: 1px; cursor: row-resize; padding: 2px 0; background-clip: content-box; }
+#panes.horizontal > #divider { width: 1px; cursor: col-resize; padding: 0 2px; background-clip: content-box; }
+#divider:focus-visible { outline: 2px solid var(--envy-link); outline-offset: 1px; }
+
+/* Compact by default — `listDensity` is `.compact` and `showNotePreview` is
+   false on the Mac, so one dense line per note is the real default row, not a
+   two-line card. */
+/* Carries the full height of the result set so the scrollbar reflects every
+   note, while only the visible rows are actually in the DOM (see renderList).
+   The rows inside are positioned at their true offsets rather than laid out in
+   flow, since the ones above the viewport don't exist to push them down. */
+#list-sizer { position: relative; }
+#list-sizer > .row { position: absolute; left: 0; right: 0; }
+
+.row {
+  align-items: baseline;
+  /* One measured height for every row (set by the list from a real row), so a
+     row with an emoji or CJK title cannot be a pixel taller than the rest and
+     throw the virtualised positions off. */
+  height: var(--envy-row-height, auto);
+  box-sizing: border-box;
+  /* 12px each side, matching the Mac's 8 on the row plus 4 on the stack around
+     it — except that the trailing side has to pay for the scrollbar gutter as
+     well. The gutter is reserved whether or not a scrollbar is showing (see
+     #list), so a flat 12px here put the date 22px from the pane edge, and the
+     ten pixels of empty gutter read as the column being adrift. macOS never has
+     this problem: its scrollbars overlay the content rather than taking width
+     from it. Subtracting the gutter puts the trailing edge back at the Mac's
+     12px, without giving up the stability the reserved gutter buys. */
+  padding: calc(var(--envy-row-padding) * var(--envy-zoom-space))
+    calc(var(--envy-inset) - var(--envy-scrollbar-width))
+    calc(var(--envy-row-padding) * var(--envy-zoom-space)) var(--envy-inset);
+  cursor: default;
+}
+.row.highlighted {
+  background: color-mix(in srgb, var(--envy-link) 22%, transparent);
+  box-shadow: inset 2px 0 0 var(--envy-link);
+}
+/* Dimmer than the primary. The primary is the one the editor is showing, and
+   a multi-selection where every row looks identical makes it impossible to
+   tell which note you're actually looking at. */
+.row.multi-selected { background: color-mix(in srgb, var(--envy-selection) 40%, transparent); }
+/* Overdue and soon keep their urgency colour on the selected row; everything
+   else defers to the selection's own text colour. That split is the Mac's:
+   `dateTextColor` returns the theme colour outright for overdue and soon, but
+   `textColor ?? dueColor` for later — so only later yields to the selection. */
+.row.highlighted .row-date:not(.envy-due-overdue):not(.envy-due-soon),
+.row.highlighted .row-meta,
+.row.highlighted .ai-badge { color: inherit; opacity: 0.8; }
+/* Title and preview share the first column, side by side on one line — the
+   Mac's row is an HStack, so the preview follows the title rather than sitting
+   under it.
+
+   The title carries `layoutPriority(1)` there, meaning it keeps its full width
+   and the preview is what gives way. `flex: 0 1 auto` on the title against
+   `flex: 1 1 0` on the preview reproduces that: a zero basis means the preview
+   only ever gets space left over once the title has taken what it needs, so it
+   is the one that truncates — never the other way around. */
+.row-main {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.row-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  /* A flex row so the folder dot / inbox mark / pins sit vertically centred on
+     the title rather than riding low the way inline `vertical-align: middle`
+     leaves them. The text keeps the ellipsis; the markers never shrink. */
+  display: flex;
+  align-items: center;
+}
+/* A long title yields gracefully (the Mac's HuggingScrollingText): it
+   hard-stops before the date, fades over its last 18px so it reads as
+   continuing rather than cut, and scrolls on hover to reveal the rest. The
+   fade is present only when the text genuinely overflows — `overflows` is set
+   from JS after measuring, since CSS can't tell — and lifted while hovering,
+   when the scroll itself reveals the end and a fade over it would hide the
+   last characters. No ellipsis: the fade is the truncation mark. */
+.row-title-text {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+}
+.row-title-text.overflows:not(.scrolling) {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent);
+}
+.row-title > :not(.row-title-text) {
+  flex: none;
+}
+/* Right-aligned within its fixed column, so every row's date ends flush at the
+   same edge. This is what the Mac does — its row is an HStack with a Spacer
+   before the date, which pushes it to the trailing edge — and with a single
+   value column there is nothing to the right of it that left alignment would
+   line up with, only empty track.
+
+   Overflow hidden is a backstop; the column is sized to the longest label, so
+   a smart date should never actually clip. */
+.row-date {
+  text-align: right;
+  color: var(--envy-blockquote);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+}
+/* "Bold file list text" — the Mac applies its `bold` flag to every Text in the
+   row (title, preview and date alike), not to the title alone. */
+body.bold-file-list .row-title,
+body.bold-file-list .row-meta,
+body.bold-file-list .row-date { font-weight: 700; }
+
+.row-meta {
+  flex: 1 1 0;
+  min-width: 0;
+  color: var(--envy-blockquote);
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The folder a note is filed in, when that folder has been given a colour. Same
+   size and slot as the fleeting dot, because a note only ever shows one: an
+   inbox note keeps amber, since "unfiled" outranks a folder category. */
+.folder-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+/* A folder with no colour still reserves the dot, so catalog names line up. */
+.folder-dot.empty {
+  background: none;
+  border: 1px solid color-mix(in srgb, var(--envy-marker) 60%, transparent);
+}
+
+/* --- Row folder markers ----------------------------------------------------
+   The list row's folder dot or name chip, clickable to pivot to that folder.
+   The margin flips with the marker's side so the gap is always between the
+   marker and the title, never doubled or missing. */
+.row-folder-dot {
+  cursor: pointer;
+}
+/* Flex centring lands a marker on the line-box centre. An earlier build nudged
+   the round dots ~1px down toward a capital-led title's cap-height centre, a
+   correction tuned to the Envious font's ascent/descent. With the Omarchy
+   monospace fonts the line-box centre already sits on the cap centre, so the
+   nudge left the dots visibly low; measured on screen, no offset is right. */
+.row-folder-dot,
+.inbox-dot {
+  transform: none;
+}
+.row-folder-dot.marker-leading { margin-right: 6px; }
+.row-folder-dot.marker-trailing { margin-right: 0; margin-left: 6px; }
+.folder-name-chip {
+  display: inline-block;
+  flex: none;
+  max-width: 16ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+  font-size: calc(10px * var(--envy-ui-scale));
+  line-height: 1.5;
+  padding: 0 5px;
+  border-radius: 0;
+  border: 1px solid color-mix(in srgb, var(--envy-marker) 40%, transparent);
+  cursor: pointer;
+  color: var(--envy-blockquote);
+  background: color-mix(in srgb, var(--envy-marker) 14%, transparent);
+}
+.folder-name-chip.marker-leading { margin-right: 6px; }
+.folder-name-chip.marker-trailing { margin-left: 6px; }
+
+/* --- Title-bar folder chip -------------------------------------------------
+   The open note's folder beside its tags. Deliberately an *outlined* capsule,
+   a different species from the filled tag chips, with a small folder glyph. */
+.title-folder-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 22ch;
+  overflow: hidden;
+  font-size: calc(11px * var(--envy-ui-scale));
+  font-weight: 600;
+  line-height: 1.4;
+  padding: 1px 8px;
+  border-radius: 0;
+  cursor: pointer;
+  color: var(--envy-blockquote);
+  border: 1px solid color-mix(in srgb, var(--envy-marker) 40%, transparent);
+}
+.title-folder-chip > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A minimal folder glyph, drawn in the current text colour so it takes the
+   folder's tint along with the label. */
+.title-folder-icon {
+  flex: none;
+  width: 9px;
+  height: 7px;
+  background: currentColor;
+  clip-path: polygon(0 0, 40% 0, 52% 18%, 100% 18%, 100% 100%, 0 100%);
+  border-radius: 1px;
+}
+#note-folder.hidden { display: none; }
+
+/* --- Browse catalogs -------------------------------------------------------
+   Rows for the bare tag:/folder: catalogs: a coloured pill or dot on the left,
+   the note count pushed to the right — the same two-column shape a note row
+   has, so the list reads consistently as you pivot between them. */
+.catalog-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: default;
+}
+.catalog-tag {
+  font-size: calc(12px * var(--envy-ui-scale));
+  padding: 1px 7px;
+}
+.catalog-folder {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.catalog-count {
+  margin-left: auto;
+  padding-left: 8px;
+  font-size: calc(11px * var(--envy-ui-scale));
+  font-variant-numeric: tabular-nums;
+  color: var(--envy-blockquote);
+}
+.inbox-dot {
+  display: inline-block;
+  /* The same 7px as the folder dot: the two sit on the same rows, leading and
+     trailing, and a size apart read as a mistake rather than a distinction. */
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  /* Same accent as the inbox count badge, so the fleeting marker and its
+     counter read as one thing. */
+  background: var(--envy-flag);
+  vertical-align: middle;
+}
+.ai-badge { margin-left: 6px; color: var(--envy-blockquote); }
+.pin-mark { margin-right: 5px; font-size: 10px; }
+
+/* These marks must not be allowed to set the row's height. `⎈`, `📌` and `📍`
+   all have taller line boxes than the title text does — not because they're
+   drawn any larger, but because their fonts declare more ascent — so a row
+   carrying one came out 1px taller than its neighbours. That was invisible
+   until the list was virtualized, at which point rows are placed at multiples
+   of a single measured height and anything off-size leaves a hairline gap or
+   overlaps the row below. Capping the line box costs nothing visually: the
+   glyphs are unchanged, they simply stop dictating the row metrics. */
+.row .ai-badge,
+.row .pin-mark,
+.row .inbox-dot,
+.row .trash-mark { line-height: 1; }
+
+#settings-panel .setting-note {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--envy-blockquote);
+}
+/* Last-checked line on the left, "Check Now" on the right — the Mac's Text +
+   Spacer + Button row. The note keeps its colour but drops its top margin so it
+   sits centred against the button. */
+#settings-panel .update-check-row {
+  align-items: center;
+  justify-content: space-between;
+}
+#settings-panel .update-check-row .setting-note {
+  margin: 0;
+}
+
+/* `min-height: 0` and `min-width: 0` are both load-bearing, not defensive. A
+   flex item defaults to `min-*: auto`, meaning it refuses to shrink below its
+   content — so a long note made this pane taller than its share of the split,
+   which grew #panes past 100% and scrolled the entire shell, carrying the
+   search box and list off the top of the window. Only long notes triggered
+   it, which made it look like an intermittent rendering fault. */
+#editor-pane {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Wraps rather than scrunching. A run of pills — the due chip and however many
+   tags a note carries — keeps every pill full size and stacks onto another row
+   when the bar runs out of width, so the bar grows taller instead of the pills
+   shrinking to stay on one line. The Mac added a FlowLayout for exactly this. */
+#note-title-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  /* Thin: the bar plus the field's own padding comes to the same height as
+     the pop-out's title bar, so a note reads the same in both. */
+  padding: calc(2px * var(--envy-zoom-space) - 1px) var(--envy-inset);
+  font-weight: 600;
+  background: var(--envy-title-bar-background);
+  border-bottom: 1px solid color-mix(in srgb, var(--envy-marker) 30%, transparent);
+}
+/* The title bar is the rename field. It reads as a label until focused,
+   because a note's title is its filename and an always-boxed input would
+   invite renaming as a routine act rather than a deliberate one. */
+#note-title {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  /* No horizontal padding: the title reads as a label most of the time and has
+     to start in the same column as the list and the editor. The 1px border
+     (transparent until focus) is absorbed by a matching negative margin so the
+     text — not the box — is what aligns. */
+  padding: 2px 0;
+  margin-left: -1px;
+  border: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--envy-text);
+  text-overflow: ellipsis;
+}
+/* A title too long for the bar scrolls its full text on hover rather than
+   staying ellipsised — the bar shrinks as tags and due pills claim the row, so
+   truncation is common, and a title you can't read is a title you can't check.
+   The scrolling itself is driven from JS, which can measure the actual
+   overflow; CSS can't. */
+#note-title.scrolling { text-overflow: clip; }
+/* The same trailing fade the list's titles carry, so a clipped title reads as
+   continuing. On the field's box rather than measured against its text (an
+   input's overflow isn't visible to CSS), so only a title reaching the last
+   18px of the box is touched — one that fits with room to spare is unaffected.
+   Lifted while scrolling, when the sweep reveals the end, and while focused,
+   when it's the rename box and the caret needs to reach the last character. */
+#note-title:not(.scrolling):not(:focus) {
+  text-overflow: clip;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent);
+}
+#note-title:hover { border-color: color-mix(in srgb, var(--envy-marker) 50%, transparent); }
+#note-title:focus {
+  outline: none;
+  border-color: var(--envy-link);
+  background: color-mix(in srgb, var(--envy-marker) 12%, transparent);
+}
+
+/* Overlaid rather than swapped with the editor. CodeMirror measures itself on
+   construction, and a view built inside a `display: none` parent measures as
+   zero and does not recover when the parent is later shown — the document is
+   there, laid out at no height, so the note reads as blank. Keeping #editor in
+   the layout at all times sidesteps that entirely; the empty state simply
+   covers it until a note is open. */
+#empty-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4ch;
+  text-align: center;
+  color: var(--envy-blockquote);
+  font-size: 13px;
+  line-height: 1.6;
+  background: var(--envy-background);
+  pointer-events: none;
+}
+#empty-state.hidden { display: none; }
+
+/* `hidden`, not `auto`: CodeMirror's own .cm-scroller already scrolls, so a
+   second scrolling container here produces two nested scrollbars. */
+#editor {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+/* Two panes sit side by side under a wide editor (list above), stacked
+   beside a tall one (list to the left). */
+#editor.side-by-side { flex-direction: row; }
+.note-pane {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pane-editor { flex: 1; min-height: 0; overflow: hidden; }
+/* The title bar lives in the active pane. The other pane gets a strip of the
+   same height (the bar's padding plus the field's own padding and border)
+   with its title in the muted colour, which is the one cue for which pane
+   the list opens into. */
+.pane-caption { display: none; }
+#editor.split .note-pane:not(.active) > .pane-caption {
+  display: block;
+  flex: none;
+  padding: calc(2px * var(--envy-zoom-space) + 2px) var(--envy-inset);
+  font-size: var(--envy-font-size);
+  font-weight: 600;
+  color: var(--envy-blockquote);
+  background: var(--envy-title-bar-background);
+  border-bottom: 1px solid color-mix(in srgb, var(--envy-marker) 30%, transparent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The line between two panes is the handle that resizes them: the same
+   one-pixel hairline as #divider, with the same invisible padding widening the
+   grab area (content-box for the same reason — see #divider). */
+#pane-divider {
+  flex: none;
+  box-sizing: content-box;
+  background-color: var(--envy-marker);
+  background-clip: content-box;
+  transition: background-color 120ms ease;
+}
+#pane-divider:hover,
+#pane-divider.dragging { background-color: var(--envy-link); }
+#editor.side-by-side > #pane-divider { width: 1px; cursor: col-resize; padding: 0 2px; }
+#editor:not(.side-by-side) > #pane-divider { height: 1px; cursor: row-resize; padding: 2px 0; }
+#pane-divider:focus-visible { outline: 2px solid var(--envy-link); outline-offset: 1px; }
+
+/* --- Pinned-note popover ----------------------------------------------------
+   Its own window, undecorated and always on top, so it reads as a panel
+   hanging off the tray rather than a second application window. The border is
+   doing the job the missing title bar would otherwise do — marking where the
+   window ends. */
+
+body.popover {
+  border: 1px solid color-mix(in srgb, var(--envy-marker) 70%, transparent);
+  border-radius: 0;
+  overflow: hidden;
+}
+#pinned-app { display: flex; flex-direction: column; height: 100%; }
+
+#pinned-title-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--envy-title-bar-background);
+  border-bottom: 1px solid color-mix(in srgb, var(--envy-marker) 30%, transparent);
+  /* Undecorated windows have nothing to drag, so the bar becomes the handle. */
+  -webkit-app-region: drag;
+}
+#pinned-title {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#pinned-title-bar .window-controls {
+  margin: -6px -10px -6px 4px;
+}
+#pinned-title-bar button {
+  -webkit-app-region: no-drag;
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 0;
+  border: 1px solid color-mix(in srgb, var(--envy-marker) 55%, transparent);
+  background: transparent;
+  color: var(--envy-blockquote);
+  cursor: default;
+}
+#pinned-title-bar button:hover {
+  color: var(--envy-text);
+  background: color-mix(in srgb, var(--envy-marker) 20%, transparent);
+}
+/* The keep-open pin. Square rather than a labelled button, since it is a state
+   you glance at rather than a command you read, and tinted when on — the Mac
+   swaps a hollow pin for a filled one and colours it with the accent. */
+#pinned-keep-open {
+  padding: 2px 6px;
+  line-height: 1;
+  filter: grayscale(1);
+  opacity: 0.55;
+}
+#pinned-keep-open.active {
+  filter: none;
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--envy-link) 70%, transparent);
+  background: color-mix(in srgb, var(--envy-link) 18%, transparent);
+}
+
+#pinned-editor { flex: 1; min-height: 0; overflow: hidden; }
+
+/* A popped-out note fills its own undecorated window. */
+body.popout-window {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--envy-background);
+}
+#popout-editor { flex: 1; min-height: 0; overflow: hidden; padding: 4px 10px; }
+/* The pop-out's editable title — click it to rename the note, the same as the
+   main window's title bar. */
+/* The same bar the main window's title sits in: the same face size, the same
+   chrome background, the same rule beneath it. */
+#popout-title-bar {
+  display: flex;
+  align-items: stretch;
+  flex: none;
+  background: var(--envy-title-bar-background);
+  border-bottom: 1px solid color-mix(in srgb, var(--envy-marker) 30%, transparent);
+  -webkit-app-region: drag;
+}
+#popout-title {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-weight: 600;
+  font-size: var(--envy-font-size);
+  margin: 0;
+  padding: calc(3px * var(--envy-zoom-space)) var(--envy-inset);
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--envy-text);
+  text-overflow: ellipsis;
+  -webkit-app-region: no-drag;
+}
+#popout-title:focus {
+  outline: none;
+  box-shadow: inset 0 -1px 0 var(--envy-link);
+}
+#popout-title-bar .window-controls {
+  margin: 0;
+}
+
+/* --- Footer and interlinks --------------------------------------------------
+   The panel sits directly above the footer bar so expanding grows it upward
+   into the editor, rather than pushing the footer down and shifting the whole
+   pane under the cursor. */
+
+#footer {
+  /* Above #empty-state, which overlays the whole pane: without this the
+     footer sat under that translucent sheet and read as faint until a note
+     was opened. */
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.75em;
+  flex: none;
+  padding: calc(2px * var(--envy-zoom-space) - 1px) var(--envy-inset);
+  /* A touch smaller than the note/list text — the status bar is chrome. */
+  font-size: calc(11px * var(--envy-zoom-space));
+  /* One fixed line: the bar must not grow because a button or a box-drawing
+     glyph joined it, only when the window is too narrow and it wraps. */
+  line-height: 1.6;
+  min-height: calc(1.6em + 2px);
+  /* Never wraps: too narrow and the counts drop out instead (fitFooter). */
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+  color: var(--envy-chrome-text);
+  background: color-mix(in srgb, var(--envy-marker) 10%, var(--envy-title-bar-background));
+  border-top: 1px solid color-mix(in srgb, var(--envy-marker) 45%, transparent);
+  -webkit-app-region: drag;
+}
+#footer button,
+#interlinks-toggle {
+  -webkit-app-region: no-drag;
+}
+#stats {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+#footer-clock { font-variant-numeric: tabular-nums; }
+#footer-clock.hidden, #loading-indicator.hidden { display: none; }
+#vault-stats { font-variant-numeric: tabular-nums; }
+#vault-stats.hidden { display: none; }
+/* A box-drawing rule between the open note's counts and the vault totals,
+   only when both are showing. */
+#vault-stats.with-divider::before {
+  content: '│';
+  margin-right: 0.75em;
+  color: var(--envy-marker);
+}
+/* Every rule in the footer, the marker colour: the bar's own border, not the
+   counts' ink. */
+.footer-rule {
+  margin: 0 0.75em;
+  color: var(--envy-marker);
+}
+#loading-indicator { opacity: 0.8; }
+/* Config and theme notices. Truncated rather than allowed to push the counts
+   off the end of the footer — the whole list is in the tooltip. */
+#footer-notice {
+  color: var(--envy-due-soon);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 45%;
+}
+#footer-notice.hidden { display: none; }
+
+#template-actions { display: flex; gap: 6px; flex: none; }
+#template-actions.hidden { display: none; }
+#template-actions button {
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 0;
+  border: 1px solid color-mix(in srgb, var(--envy-marker) 55%, transparent);
+  background: transparent;
+  color: var(--envy-text);
+  cursor: default;
+  white-space: nowrap;
+}
+#template-actions button:hover { background: color-mix(in srgb, var(--envy-marker) 20%, transparent); }
+
+#interlinks-toggle {
+  font: inherit;
+  line-height: inherit;
+  /* No vertical padding: the button sits inside the footer's one line rather
+     than stretching it. */
+  padding: 0 6px;
+  margin-left: -6px;
+  border: none;
+  border-radius: 0;
+  background: none;
+  color: var(--envy-chrome-text);
+  cursor: default;
+}
+#interlinks-toggle:hover {
+  color: var(--envy-text);
+  background: color-mix(in srgb, var(--envy-marker) 20%, transparent);
+}
+#interlinks-toggle.hidden { display: none; }
+
+#interlinks {
+  flex: none;
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  max-height: 40%;
+  overflow-y: auto;
+  padding: 8px 16px;
+  background: var(--envy-title-bar-background);
+  border-top: 1px solid color-mix(in srgb, var(--envy-marker) 30%, transparent);
+}
+#interlinks.hidden { display: none; }
+
+/* Columns side by side when there's room, stacked when the pane gets too
+   narrow for readable ones — which the vertical layout's editor half often
+   is. ~130px per column is the point where titles stop being legible. */
+@media (max-width: 400px) {
+  #interlinks { flex-direction: column; gap: 10px; }
+}
+
+.interlink-column { flex: 1; min-width: 0; }
+.interlink-column h4 {
+  margin: 0 0 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--envy-marker);
+}
+.interlink-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 4px;
+  margin-left: -4px;
+  border: none;
+  border-radius: 0;
+  background: none;
+  color: var(--envy-link);
+  cursor: default;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.interlink-row:hover { background: color-mix(in srgb, var(--envy-marker) 20%, transparent); }
+/* Suggested entries aren't links yet — showing them in link blue would claim a
+   connection that doesn't exist in the file. */
+.interlink-row.suggested { color: var(--envy-blockquote); font-style: italic; }
+.interlink-row.suggested:hover { color: var(--envy-link); font-style: normal; }
+
+/* --- Trash preview ---------------------------------------------------------
+   Shown, never edited. A note in the trash is a record of something removed,
+   and letting it be typed into would make "restore" ambiguous about which
+   version it restores. Hence a <pre> rather than the editor — it also makes
+   the difference visible at a glance rather than only on trying to type. */
+
+#trash-preview {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--envy-background);
+  z-index: 1;
+}
+#trash-preview.hidden { display: none; }
+
+#trash-preview-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: var(--envy-title-bar-background);
+  border-bottom: 1px solid color-mix(in srgb, var(--envy-marker) 30%, transparent);
+}
+#trash-preview-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#trash-preview-bar button {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 0;
+  border: 1px solid color-mix(in srgb, var(--envy-marker) 55%, transparent);
+  background: transparent;
+  color: var(--envy-text);
+  cursor: default;
+  white-space: nowrap;
+}
+#trash-preview-bar button:hover { background: color-mix(in srgb, var(--envy-marker) 20%, transparent); }
+#trash-preview-bar button.destructive { color: var(--envy-due-overdue); border-color: color-mix(in srgb, var(--envy-due-overdue) 55%, transparent); }
+#trash-preview-bar button.destructive:hover { background: color-mix(in srgb, var(--envy-due-overdue) 18%, transparent); }
+
+#trash-preview-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  margin: 0;
+  padding: 16px 28px;
+  font-family: var(--envy-font-family);
+  font-size: var(--envy-font-size);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--envy-text);
+  user-select: text;
+}
+
+.trash-mark { margin-right: 6px; opacity: 0.7; }
+
+/* --- Context menu ----------------------------------------------------------- */
+
+#context-menu {
+  position: fixed;
+  z-index: 20;
+  min-width: 200px;
+  padding: 2px;
+  border-radius: 0;
+  background: var(--envy-title-bar-background);
+  border: 1px solid color-mix(in srgb, var(--envy-marker) 55%, transparent);
+  box-shadow: none;
+}
+#context-menu.hidden { display: none; }
+
+.context-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  position: relative;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 0;
+  background: none;
+  color: var(--envy-text);
+  cursor: default;
+  white-space: nowrap;
+}
+.context-item:hover {
+  background: color-mix(in srgb, var(--envy-link) 22%, transparent);
+  box-shadow: inset 2px 0 0 var(--envy-link);
+}
+/* Keyboard focus reads exactly like hover. The menu is driven by both, and a
+   focused row that looked different from a hovered one would imply they mean
+   different things. The default focus ring is dropped for the same reason the
+   list's is: the row's own fill is the affordance. */
+.context-item:focus,
+.context-item:focus-visible,
+/* And a parent stays lit while the keyboard is down inside its submenu, so the
+   trail back out is visible rather than guessed at. */
+.context-item.has-submenu:focus-within {
+  outline: none;
+  background: color-mix(in srgb, var(--envy-link) 22%, transparent);
+  box-shadow: inset 2px 0 0 var(--envy-link);
+}
+.context-item:disabled { opacity: 0.45; }
+.context-item:disabled:hover { background: transparent; }
+
+/* --- Submenus ---------------------------------------------------------------
+   Nested rather than a second floating layer, so it inherits the menu's own
+   look and closes with it. It hangs off the right edge and flips to the left
+   when there isn't room — the same rule the menu itself follows. */
+.context-item.has-submenu::after {
+  content: '›';
+  margin-left: auto;
+  padding-left: 10px;
+  opacity: 0.6;
+}
+.context-submenu {
+  position: absolute;
+  top: -5px;
+  left: 100%;
+  z-index: 21;
+  min-width: 170px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 2px;
+  border-radius: 0;
+  background: var(--envy-title-bar-background);
+  border: 1px solid color-mix(in srgb, var(--envy-marker) 55%, transparent);
+  box-shadow: none;
+}
+.context-submenu.hidden { display: none; }
+.context-submenu.flip { left: auto; right: 100%; }
+
+.context-separator {
+  height: 1px;
+  margin: 4px 6px;
+  background: color-mix(in srgb, var(--envy-marker) 45%, transparent);
+}
+
+/* The colour of the folder an item files into. Always present, even when the
+   folder has none, so the labels line up either way. */
+.context-swatch {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.context-swatch.empty {
+  background: none;
+  border: 1px solid color-mix(in srgb, var(--envy-marker) 60%, transparent);
+}
+/* The destructive entry is coloured, not separated by a divider — one
+   irreversible item in a list of six reads better marked than fenced off. */
+.context-item.destructive { color: var(--envy-due-overdue); }
+.context-item.destructive:hover {
+  background: color-mix(in srgb, var(--envy-due-overdue) 22%, transparent);
+  color: var(--envy-due-overdue);
+}
+
+/* --- Reference sheets ------------------------------------------------------- */
+
+#reference {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 30;
+}
+#reference.hidden { display: none; }
+#reference-panel {
+  width: min(560px, 92vw);
+  height: min(620px, 88vh);
+  display: flex;
+  flex-direction: column;
+  border-radius: 0;
+  background: var(--envy-title-bar-background);
+  border: 1px solid var(--envy-link);
+  box-shadow: none;
+  overflow: hidden;
+}
+#reference-panel header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--envy-marker) 35%, transparent);
+}
+#reference-tabs { display: flex; gap: 4px; flex: 1; }
+.reference-tab {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 0;
+  background: none;
+  color: var(--envy-blockquote);
+  cursor: default;
+}
+.reference-tab:hover { background: color-mix(in srgb, var(--envy-marker) 20%, transparent); }
+.reference-tab.active { background: var(--envy-selection); color: var(--envy-text); }
+#reference-close {
+  font: inherit;
+  font-size: 14px;
+  border: none;
+  background: none;
+  color: var(--envy-blockquote);
+  cursor: default;
+}
+#reference-content { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 18px 20px; }
+
+.reference-group {
+  margin: 16px 0 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--envy-blockquote);
+}
+.reference-group:first-child { margin-top: 0; }
+.reference-table {
+  display: grid;
+  grid-template-columns: minmax(90px, max-content) 1fr;
+  gap: 5px 14px;
+  align-items: baseline;
+}
+.reference-syntax {
+  font-family: var(--envy-mono-family);
+  font-size: 12px;
+  padding: 1px 5px;
+  border-radius: 0;
+  background: var(--envy-code-background);
+  color: var(--envy-text);
+  white-space: pre-wrap;
+}
+.reference-desc { font-size: 12.5px; line-height: 1.5; color: var(--envy-blockquote); }
+
+.reference-search {
+  width: 100%;
+  font: inherit;
+  font-size: 13px;
+  margin: 8px 0 12px;
+  padding: 5px 8px;
+  border-radius: 0;
+  border: 1px solid color-mix(in srgb, var(--envy-marker) 55%, transparent);
+  background: var(--envy-background);
+  color: var(--envy-text);
+}
+.emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 2px;
+}
+.emoji-cell {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 6px;
+  border-radius: 0;
+  font-size: 12px;
+  cursor: default;
+}
+.emoji-cell:hover { background: color-mix(in srgb, var(--envy-marker) 20%, transparent); }
+.emoji-glyph { font-size: 16px; }
+.emoji-cell code { color: var(--envy-blockquote); }
+
+.reference-body.about { text-align: center; padding-top: 26px; }
+.reference-body.about h3 { margin: 12px 0 4px; font-size: 17px; }
+.reference-body.about .reference-desc { margin: 2px 0; }
+/* The app mark, drawn from the same five flat shapes as the icon rather than
+   loaded as an image — one source of geometry, and it scales cleanly. */
+/* The real application icon, imported as a file rather than rebuilt in CSS.
+   The previous version drew the mark by hand out of a rounded box, a border-top
+   arc and a ring-shadowed circle — and it had no eye. The mark is an eye: a red
+   brow above a cream almond holding a green iris. Without the almond, all that
+   was left was a red slash over a green dot on near-black, which is not the
+   logo and reads like something else entirely.
+
+   Using the icon file means it cannot drift from what the taskbar and the
+   installer show, which for the one screen whose job is to say what you are
+   running is the whole point. */
+.about-mark {
+  display: block;
+  width: 88px;
+  height: 88px;
+  margin: 0 auto;
+  border-radius: 22.37%;
+}
+
+/* --- Settings --------------------------------------------------------------- */
+
+#settings {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--envy-background) 45%, transparent);
+  z-index: 10;
+}
+#settings.hidden { display: none; }
+
+#settings-panel {
+  width: min(460px, 90vw);
+  max-height: 85vh;
+  overflow-y: auto;
+  padding: 14px 18px 18px;
+  border-radius: 0;
+  background: var(--envy-title-bar-background);
+  border: 1px solid var(--envy-link);
+  box-shadow: none;
+}
+#settings-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+#settings-panel h2 { font-size: 15px; margin: 0; }
+#settings-panel h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--envy-blockquote);
+  margin: 18px 0 8px;
+}
+#settings-panel section { font-size: 13px; }
+#settings-panel label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+#settings-panel select,
+#settings-panel button,
+#settings-panel input[type='text'],
+#settings-panel input[type='number'],
+#prompt-input,
+#prompt-buttons button,
+#template-actions button,
+#pinned-title-bar button,
+#trash-preview-bar button,
+#fleeting-actions button,
+.shortcut-key {
+  border-radius: 0;
+}
+#settings-panel select {
+  margin-left: auto;
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 6px;
+  border-radius: 0;
+  border: 1px solid color-mix(in srgb, var(--envy-marker) 55%, transparent);
+  background: var(--envy-background);
+  color: var(--envy-text);
+}
+#settings-panel .setting-path {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--envy-blockquote);
+  word-break: break-all;
+}
+/* Problems reported by `envynote config check` are the one thing in the
+   panel that wants to be noticed. */
+#settings-config-problems { color: var(--envy-due-soon); }
+#settings-panel button {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 0;
+  border: 1px solid color-mix(in srgb, var(--envy-marker) 55%, transparent);
+  background: transparent;
+  color: var(--envy-text);
+  cursor: default;
+}
+#settings-panel button:hover { background: color-mix(in srgb, var(--envy-marker) 20%, transparent); }
+#settings-close { border: none; font-size: 14px; color: var(--envy-blockquote); }
+#settings-panel button.destructive {
+  color: var(--envy-due-overdue);
+  border-color: color-mix(in srgb, var(--envy-due-overdue) 55%, transparent);
+}
+#settings-panel button.destructive:hover {
+  background: color-mix(in srgb, var(--envy-due-overdue) 18%, transparent);
+}
+.setting-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0; }
+
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 0;
+}
+.shortcut-label { flex: 1; min-width: 0; font-size: 12.5px; }
+.shortcut-key {
+  font-family: var(--envy-mono-family);
+  font-size: 11px;
+  min-width: 12ch;
+  padding: 3px 8px;
+  border-radius: 0;
+  border: 1px solid color-mix(in srgb, var(--envy-marker) 55%, transparent);
+  background: var(--envy-code-background);
+  color: var(--envy-text);
+  cursor: default;
+}
+.shortcut-key:hover { border-color: var(--envy-link); }
+.shortcut-key.recording {
+  border-color: var(--envy-link);
+  background: color-mix(in srgb, var(--envy-link) 22%, transparent);
+}
+/* A clash means one of the two can never fire, so it's marked rather than
+   left to be discovered by a shortcut mysteriously doing nothing. */
+.shortcut-key.clashing {
+  border-color: var(--envy-due-overdue);
+  color: var(--envy-due-overdue);
+}
+#settings-panel input[type='text'] {
+  margin-left: auto;
+  font: inherit;
+  font-size: 12px;
+  width: 14ch;
+  padding: 3px 6px;
+  border-radius: 0;
+  border: 1px solid color-mix(in srgb, var(--envy-marker) 55%, transparent);
+  background: var(--envy-background);
+  color: var(--envy-text);
+}
+#settings-panel input#setting-font-custom {
+  width: 22ch;
+}
+/* The label rule above sets display: flex, which outranks a bare .hidden;
+   the custom-font row needs its own rule to actually disappear. */
+#settings-panel #setting-font-custom-row.hidden {
+  display: none;
+}
+/* A number field paired with a unit dropdown, kept together at the row's right
+   edge (the group takes the auto margin so the two don't drift apart). */
+#settings-panel .setting-inline-group {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+#settings-panel .setting-inline-group select {
+  margin-left: 0;
+}
+#settings-panel input[type='number'] {
+  font: inherit;
+  font-size: 12px;
+  width: 6ch;
+  padding: 3px 6px;
+  border-radius: 0;
+  border: 1px solid color-mix(in srgb, var(--envy-marker) 55%, transparent);
+  background: var(--envy-background);
+  color: var(--envy-text);
+  text-align: right;
+}
+#settings-panel code {
+  font-family: var(--envy-mono-family);
+  font-size: 0.92em;
+  padding: 0 3px;
+  border-radius: 0;
+  background: var(--envy-code-background);
+}
+
+/* The text-input prompt (rename, new folder, emoji) — WebView2's stand-in for
+   window.prompt. A centred card over a dimming backdrop, like Settings. */
+#prompt {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--envy-background) 45%, transparent);
+  z-index: 30;
+}
+#prompt.hidden { display: none; }
+#prompt-panel {
+  width: min(360px, 88vw);
+  padding: 14px 16px 12px;
+  border-radius: 0;
+  background: var(--envy-title-bar-background);
+  border: 1px solid var(--envy-link);
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+#prompt-message {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--envy-text);
+}
+#prompt-input {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 9px;
+  border-radius: var(--envy-radius);
+  border: 1px solid color-mix(in srgb, var(--envy-marker) 55%, transparent);
+  background: var(--envy-background);
+  color: var(--envy-text);
+}
+#prompt-input:focus {
+  outline: none;
+  border-color: var(--envy-link);
+}
+/* Confirm and alert reuse the panel without the text field / without Cancel. */
+#prompt-input.hidden { display: none; }
+#prompt-cancel.hidden { display: none; }
+#prompt-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+#prompt-buttons button {
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 14px;
+  border-radius: 0;
+  border: 1px solid color-mix(in srgb, var(--envy-marker) 55%, transparent);
+  background: transparent;
+  color: var(--envy-text);
+  cursor: default;
+}
+#prompt-buttons button:hover { background: color-mix(in srgb, var(--envy-marker) 20%, transparent); }
+#prompt-ok {
+  border-color: color-mix(in srgb, var(--envy-link) 70%, transparent);
+  background: color-mix(in srgb, var(--envy-link) 16%, transparent);
+}
+#prompt-ok:hover { background: color-mix(in srgb, var(--envy-link) 28%, transparent); }
+
+/* The emoji picker: the reference tab's shortcode grid inside a prompt-shaped
+   card, for choosing a URL pill's domain emoji. Built in JS, so it carries no
+   ids — the classes are the whole contract. */
+.emoji-picker {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--envy-background) 45%, transparent);
+  z-index: 30;
+}
+.emoji-picker-panel {
+  width: min(520px, 92vw);
+  padding: 14px 16px 12px;
+  border-radius: 0;
+  background: var(--envy-title-bar-background);
+  border: 1px solid var(--envy-link);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.emoji-picker-title {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--envy-text);
+}
+.emoji-picker-search { margin: 0; }
+/* The grid scrolls inside the card; the page never grows a sideways scrollbar
+   because the cells wrap instead of running off the edge. */
+.emoji-picker-scroll {
+  max-height: 60vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.emoji-picker-scroll .emoji-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+.emoji-picker-scroll .emoji-cell { cursor: pointer; }
+.emoji-picker-scroll .emoji-cell.selected {
+  background: color-mix(in srgb, var(--envy-link) 24%, transparent);
+}
+.emoji-picker-scroll .emoji-grid:focus { outline: none; }
+.emoji-picker-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.emoji-picker-any {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--envy-blockquote);
+}
+.emoji-picker-paste {
+  font: inherit;
+  font-size: 15px;
+  width: 4em;
+  text-align: center;
+  padding: 5px 6px;
+  border-radius: var(--envy-radius);
+  border: 1px solid color-mix(in srgb, var(--envy-marker) 55%, transparent);
+  background: var(--envy-background);
+  color: var(--envy-text);
+}
+.emoji-picker-paste:focus {
+  outline: none;
+  border-color: var(--envy-link);
+}
+.emoji-picker-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.emoji-picker-buttons button {
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 14px;
+  border-radius: 0;
+  border: 1px solid color-mix(in srgb, var(--envy-marker) 55%, transparent);
+  background: transparent;
+  color: var(--envy-text);
+  cursor: default;
+}
+.emoji-picker-buttons button:hover { background: color-mix(in srgb, var(--envy-marker) 20%, transparent); }
+.emoji-picker-use {
+  border-color: color-mix(in srgb, var(--envy-link) 70%, transparent);
+  background: color-mix(in srgb, var(--envy-link) 16%, transparent);
+}
+.emoji-picker-use:hover { background: color-mix(in srgb, var(--envy-link) 28%, transparent); }
+
+/* Insert Image picker: a grid of thumbnails over the usual dim backdrop. */
+#image-picker {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 30;
+}
+#image-picker.hidden { display: none; }
+#image-picker-panel {
+  width: min(480px, 90vw);
+  height: min(440px, 82vh);
+  border-radius: 0;
+  background: var(--envy-title-bar-background);
+  border: 1px solid var(--envy-link);
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#image-picker-search {
+  padding: 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--envy-marker) 30%, transparent);
+}
+#image-picker-filter {
+  width: 100%;
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 9px;
+  border-radius: 0;
+  border: 1px solid color-mix(in srgb, var(--envy-marker) 55%, transparent);
+  background: var(--envy-background);
+  color: var(--envy-text);
+}
+#image-picker-filter:focus {
+  outline: none;
+  border-color: var(--envy-link);
+}
+#image-picker-grid {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 12px;
+  padding: 12px;
+  align-content: start;
+}
+#image-picker-grid:empty { display: none; }
+.image-picker-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--envy-text);
+}
+.image-picker-cell .thumb {
+  height: 84px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--envy-marker) 10%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.image-picker-cell img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.image-picker-cell .name {
+  font-size: 11px;
+  line-height: 1.3;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.image-picker-cell:hover .thumb {
+  outline: 2px solid var(--envy-link);
+}
+#image-picker-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--envy-blockquote);
+  font-size: 13px;
+  padding: 20px;
+}
+#image-picker-empty.hidden { display: none; }
+
+/* Tags beside the note title. Clickable, because a tag you can see and can't
+   search on is a dead end. */
+/* The tag chips are their own flow inside the bar, so a note with many tags
+   wraps within the chip run rather than pushing the due pill onto its own row
+   first. */
+#note-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.title-tag {
+  cursor: default;
+}
+
+/* Submit / Delete for a fleeting note. Present only while reviewing one, so
+   the title bar doesn't carry two buttons that never apply. */
+#fleeting-actions { display: flex; gap: 6px; flex: none; }
+#fleeting-actions.hidden { display: none; }
+#fleeting-actions button {
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 0;
+  border: 1px solid color-mix(in srgb, var(--envy-marker) 55%, transparent);
+  background: transparent;
+  color: var(--envy-text);
+  cursor: default;
+  white-space: nowrap;
+}
+#fleeting-actions button:hover { background: color-mix(in srgb, var(--envy-marker) 20%, transparent); }
+/* Submit is a split control: the label and the arrow are two buttons drawn as
+   one capsule, joined at a shared inner rule. The arrow goes away entirely
+   while subfolders are off — there are no folders to offer then. */
+#fleeting-submit-group { display: inline-flex; }
+#fleeting-submit-group #fleeting-submit {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+#fleeting-submit-group #fleeting-submit-menu {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: none;
+  padding: 3px 6px;
+}
+#fleeting-submit-group.no-folders #fleeting-submit { border-radius: 0; }
+#fleeting-submit-group.no-folders #fleeting-submit-menu { display: none; }
+#fleeting-actions button.destructive {
+  color: var(--envy-due-overdue);
+  border-color: color-mix(in srgb, var(--envy-due-overdue) 55%, transparent);
+}
+#fleeting-actions button.destructive:hover {
+  background: color-mix(in srgb, var(--envy-due-overdue) 18%, transparent);
+}
+
+.cm-editor { background: transparent; height: 100%; }
+.cm-editor.cm-focused { outline: none; }
+/* Note text is the system UI face, matching the Mac theme's "SF Pro Text"
+   default. Both come from the theme, so the customization settings can drive
+   them later without touching this file.
+
+   `.cm-editor .cm-scroller` rather than `.cm-scroller`: CodeMirror's base
+   theme sets `font-family: monospace` here and injects its stylesheet at
+   runtime, after this file, so an equal-specificity rule loses. font-size
+   isn't in its base theme, which is why that half applied and the family
+   silently didn't. */
+.cm-editor .cm-scroller {
+  font-family: var(--envy-font-family);
+  font-size: var(--envy-font-size);
+  font-weight: var(--envy-font-weight);
+  line-height: var(--envy-line-height, 24px);
+  -webkit-text-stroke: var(--envy-font-embolden) currentColor;
+  /* A small, static bottom padding — not the tall scroll-past-end space it
+     used to carry. That space (40vh) inflated the scroll height, so a note
+     whose text fit on screen still showed a scrollbar. Keeping the padding
+     static and modest means overflow is decided once, from the real content:
+     a note that overflows shows a scrollbar reliably from its first layout,
+     and one that fits shows none. (A dynamic version that dropped the space
+     only when a note fit ran into WebKitGTK not repainting the scrollbar for a
+     long note until the window was refocused.) */
+  /* Symmetric margins: the leading side is the shared inset; the trailing side
+     reserves the scrollbar gutter (stable, so it is there whether or not a note
+     is long enough to scroll) and subtracts it, landing the text the same
+     distance from the pane edge as the list and the title bar. */
+  padding: calc(12px * var(--envy-zoom-space)) calc(var(--envy-inset) - var(--envy-scrollbar-width))
+    calc(24px * var(--envy-zoom-space)) var(--envy-inset);
+  scrollbar-gutter: stable;
+  /* Long fenced lines scroll inside their panel, not the whole note. */
+  overflow-x: hidden;
+  overflow-y: auto;
+  will-change: scroll-position;
+}
+/* CodeMirror's default line padding (0 2px 0 6px) would start the text 6px in
+   from the scroller's inset, out of column with the list and the title bar.
+   Zero the leading side so the editor text shares their inset; the scroller's
+   own padding still keeps the caret off the very edge. */
+.cm-editor .cm-line {
+  padding-left: 0;
+}
+/* CodeMirror's default content padding (4px top and bottom) sat on top of the
+   scroller's inset, so the first line started 16px down while the text began
+   12px in. Zero the top so the gap above matches the gap to the left. */
+.cm-editor .cm-content {
+  padding-top: 0;
+}
+/* Real Bold is already heavier; the Regular hairline would fatten it twice. */
+.envy-bold, .envy-h1, .envy-h2 {
+  -webkit-text-stroke: 0;
+}
+/* CodeMirror injects its own stylesheet at runtime, *after* this file, so a
+   bare `.cm-cursor` rule here loses on equal specificity. `.cm-editor
+   .cm-cursor` outranks it.
+
+   The native caret stays transparent on purpose: drawSelection() hides it and
+   draws .cm-cursor instead, so re-enabling `caret-color` would show two. */
+.cm-editor .cm-cursor,
+.cm-editor .cm-dropCursor {
+  border-left-color: var(--envy-text);
+  border-left-width: 2px;
+}
+
+/* The mouse I-beam is an OS cursor and renders black regardless of the page,
+   which all but disappears on a dark ground. A white bar with a dark halo
+   reads on either, so this needs no theme switching. */
+.cm-editor .cm-content,
+.cm-editor .cm-scroller {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='28'%3E%3Cg fill='none' stroke-linecap='round'%3E%3Cpath d='M8 4V24M4.5 4h7M4.5 24h7' stroke='rgba(0,0,0,0.65)' stroke-width='4'/%3E%3Cpath d='M8 4V24M4.5 4h7M4.5 24h7' stroke='%23fff' stroke-width='1.6'/%3E%3C/g%3E%3C/svg%3E")
+      8 14,
+    text;
+}
+.cm-activeLine { background: color-mix(in srgb, var(--envy-marker) 10%, transparent); }
+.cm-selectionBackground,
+.cm-editor .cm-selectionBackground,
+::selection { background: var(--envy-selected-text) !important; }
+
+/* --- Markers -------------------------------------------------------------
+   Never removed from the document, only dimmed or replaced — the file on disk
+   is always exactly what you typed. */
+.envy-marker { color: var(--envy-marker); }
+/* List markers, dimmed so the item text leads; the `*`→• glyph shares the tint. */
+.envy-list-marker, .envy-list-bullet { color: var(--envy-marker); }
+
+/* --- Headings ------------------------------------------------------------ */
+.envy-h1 { font-size: 1.7em; font-weight: 700; }
+.envy-h2 { font-size: 1.45em; font-weight: 700; }
+.envy-h3 { font-size: 1.25em; font-weight: 600; }
+.envy-h4 { font-size: 1.1em;  font-weight: 600; }
+.envy-h5 { font-size: 1em;    font-weight: 600; }
+.envy-h6 { font-size: 0.95em; font-weight: 600; color: var(--envy-blockquote); }
+
+/* --- Emphasis ------------------------------------------------------------ */
+.envy-bold { font-weight: 700; }
+.envy-italic { font-style: italic; }
+.envy-strike { text-decoration: line-through; color: var(--envy-completed-task); }
+
+/* --- Code ---------------------------------------------------------------- */
+/* Code keeps a monospace face even though note text doesn't — a backtick means
+   "this is literal", which is exactly what monospace is for. Slightly smaller
+   because monospace faces run visually larger at the same px. */
+.envy-code, .envy-code-block {
+  font-family: var(--envy-mono-family);
+  font-size: 0.925em;
+  background: var(--envy-code-background);
+}
+.envy-code {
+  border-radius: 0.3em;
+  padding: 0.125em 0.4em;
+  white-space: nowrap;
+}
+.envy-code-block { border-radius: 0; }
+
+/* --- Links --------------------------------------------------------------- */
+.envy-link, .envy-wikilink { color: var(--envy-link); }
+.envy-wikilink { cursor: pointer; }
+.envy-link:hover, .envy-wikilink:hover { text-decoration: underline; }
+/* A ghost link: the same link colour at 0.45 alpha, so an unresolved target
+   reads as a dimmed promise. Only the colour differs from a live link — same
+   cursor, same hover underline. Dimmer than a live link but bright enough to
+   read (the Mac's 0.45 alpha was too faint on this theme). */
+.envy-wikilink-ghost { color: color-mix(in srgb, var(--envy-link) 62%, transparent); }
+
+/* --- Tags ---------------------------------------------------------------- */
+.envy-tag {
+  color: var(--envy-tag);
+  background: var(--envy-tag-background);
+  font-weight: 700;
+  border-radius: 0;
+  padding: 1px 4px;
+}
+
+/* --- Due dates -----------------------------------------------------------
+   Three tokens, not one color plus urgency logic — urgency picks the slot,
+   it never overrides what's in it. */
+.envy-due { font-weight: 600; border-radius: 0; padding: 1px 4px; }
+.envy-due-later   { color: var(--envy-due); }
+.envy-due-soon    { color: var(--envy-due-soon); }
+.envy-due-overdue { color: var(--envy-due-overdue); }
+
+/* --- Blockquote ----------------------------------------------------------
+   A quote and a transclusion are the same idea, so 1.5.0 gave them the same
+   quiet left rule instead of a boxed card. */
+.envy-blockquote {
+  color: var(--envy-blockquote);
+}
+/* On the line rather than the text span, so a quote that wraps keeps the
+   rule and the indent down every visual row. */
+.cm-editor .cm-line.envy-blockquote-line {
+  border-left: 2px solid color-mix(in srgb, var(--envy-marker) 80%, transparent);
+  padding-left: 10px;
+}
+/* Italic belongs to the quoted text, not to the ">" that introduces it. */
+.envy-blockquote-text { font-style: italic; }
+
+/* --- Link pills -------------------------------------------------------------
+   A bare URL collapsed to its domain. A translucent capsule in the link colour
+   so it reads as a link without needing a theme entry of its own, with the
+   arrow solid — the one part that says "this leaves Envy". */
+.envy-url-pill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 0 6px;
+  border-radius: 0;
+  border: 1px solid color-mix(in srgb, var(--envy-link) 40%, transparent);
+  background: color-mix(in srgb, var(--envy-link) 15%, transparent);
+  color: var(--envy-link);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.envy-url-pill:hover { background: color-mix(in srgb, var(--envy-link) 28%, transparent); }
+.envy-url-emoji { font-size: 0.9em; }
+.envy-url-arrow { font-size: 0.85em; opacity: 0.75; }
+
+/* --- Tasks --------------------------------------------------------------- */
+.envy-checkbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  flex: none;
+  width: 1.15em;
+  height: 1.15em;
+  /* The space after "]" survives in the text beside the box, so the box
+     itself adds almost nothing: a margin on top of it read as a gap. */
+  margin-right: 0.1em;
+  /* Centre the box on the text rather than letting it ride high above the
+     line. `middle` lines its centre up with the middle of the lowercase text. */
+  vertical-align: middle;
+  border: 1.5px solid var(--envy-marker);
+  border-radius: 3px;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+}
+.envy-checkbox:hover {
+  border-color: var(--envy-text);
+}
+.envy-checkbox-checked {
+  background: var(--envy-checked-checkbox);
+  border-color: var(--envy-checked-checkbox);
+  color: var(--envy-background);
+}
+/* The checkmark is an inline SVG stroked in currentColor, so it takes the
+   contrasting ink above and scales with the em-sized box under zoom. Clicks
+   pass through to the box, whose handler toggles the task. */
+.envy-checkbox svg {
+  display: block;
+  width: 78%;
+  height: 78%;
+  pointer-events: none;
+}
+.envy-completed-task { color: var(--envy-completed-task); text-decoration: line-through; }
+
+/* --- Embeds ---------------------------------------------------------------
+   A left rule rather than a box. A border frames the embed as a component
+   sitting in the note; a rule marks where the other note's text starts and
+   stops without pretending it's a different kind of thing — which is the
+   point of transclusion. Blockquotes use the same device for the same reason:
+   a quote and a transclusion are both text from somewhere else.
+
+   The padding below is load-bearing, not spacing: the rule runs just past the
+   last line and stops, and that overhang is what marks the end of the
+   embedded note now that there's no box around it. */
+.envy-embed {
+  /* Padding, not margin — see the note above .envy-md-table-wrap. The 2px
+     top and 6px bottom used to be margin; the rule is drawn by ::before so
+     it still spans exactly the content plus the 10px overhang. */
+  position: relative;
+  padding: 2px 0 16px 14px;
+}
+.envy-embed::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 2px;
+  bottom: 6px;
+  width: 2px;
+  background: var(--envy-marker);
+}
+.envy-embed .cm-editor { background: transparent; }
+.envy-embed .cm-scroller { padding: 0; }
+.envy-embed .cm-focused { outline: none; }
+/* The embedded editor sizes to its own content — an embed is the note shown,
+   not a scrollable pane containing it. */
+.envy-embed .cm-content { padding: 0; }
+
+.envy-embed-message {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--envy-blockquote);
+  padding: 2px 0;
+}
+
+/* An inline image attachment. The picture shows at its natural size but never
+   wider than the text column; clicking it opens the file in the default app. */
+.envy-image-embed {
+  /* Padding, not margin — see the note above .envy-md-table-wrap. */
+  padding: 2px 0 6px;
+}
+.envy-image-embed img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  cursor: pointer;
+}
+/* A caption sits under the picture, quiet and centred to the image's width. */
+.envy-image-caption {
+  margin-top: 4px;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--envy-blockquote);
+}
+/* A reference whose file is gone renders as a dashed placeholder rather than a
+   broken-image glyph, matching the Mac. */
+.envy-image-embed-missing {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--envy-blockquote);
+  padding: 8px 10px;
+  border: 1px dashed color-mix(in srgb, var(--envy-marker) 55%, transparent);
+  border-radius: 6px;
+}
+
+/* --- Search matches -------------------------------------------------------
+   Layered over whatever styling the span already has — a match can land on
+   bold text, a link, a tag or plain prose. The forced ink is why: without it a
+   match on a blue link or a green tag would keep that colour on an amber
+   ground and become the least readable text on screen, which is the opposite
+   of what a highlight is for. */
+.envy-search-match {
+  background: var(--envy-highlight);
+  color: var(--envy-highlight-text) !important;
+  border-radius: 2px;
+}
+
+/* `==highlight==` deliberately reuses the search-match colour rather than
+   taking a theme entry of its own — one "highlight" concept for everything in
+   the editor, which is the same reasoning the external-edit flash below
+   follows. A marked word that is also a search match therefore just stays
+   marked, rather than one of them winning. */
+.envy-highlight-mark {
+  background: var(--envy-highlight);
+  color: var(--envy-highlight-text) !important;
+  border-radius: 2px;
+}
+
+/* --- External-edit flash --------------------------------------------------
+   The same highlight token search matches use — one "highlight" concept for
+   everything in the editor rather than a second hardcoded colour.
+
+   The fade is a CSS transition on the way *out*: the mark appears at full
+   strength instantly, so the change is caught, then dissolves rather than
+   snapping away. Removing the decoration is what triggers it. */
+.envy-flash {
+  background: var(--envy-highlight);
+  color: var(--envy-highlight-text) !important;
+  border-radius: 2px;
+  animation: envy-flash-fade 900ms ease-out forwards;
+}
+@keyframes envy-flash-fade {
+  0%, 25% { background: var(--envy-highlight); }
+  100% { background: transparent; }
+}
+
+/* --- Link preview ---------------------------------------------------------
+   Read the linked note without leaving where you are. Capped in height, since
+   the point is a glance — following the link is what opening it is for. */
+#link-preview {
+  position: fixed;
+  z-index: 25;
+  width: min(420px, 70vw);
+  max-height: 320px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 0;
+  /* Opaque: the peek floats over the note's own text, and a translucent bar
+     lets that text show through the title. */
+  background: var(--envy-title-bar-background-opaque, var(--envy-title-bar-background));
+  border: 1px solid var(--envy-link);
+  box-shadow: none;
+  overflow: hidden;
+}
+#link-preview.hidden { display: none; }
+#link-preview-title {
+  flex: none;
+  display: flex;
+  align-items: center;
+  cursor: move;
+  user-select: none;
+  gap: 8px;
+  padding: 5px 8px 5px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  border-bottom: 1px solid color-mix(in srgb, var(--envy-marker) 30%, transparent);
+}
+#link-preview-title-text {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The pin that detaches the peek into a floating window. Quiet until hovered,
+   the same square glyph button the pinned popover's keep-open pin uses — a
+   hollow pin on the Mac, filled once pinned; here the float replaces the peek,
+   so the button only ever shows the unpinned state. */
+#link-preview-pin {
+  flex: none;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--envy-blockquote);
+  filter: grayscale(1);
+  opacity: 0.55;
+  cursor: default;
+}
+#link-preview-pin:hover {
+  filter: none;
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--envy-marker) 55%, transparent);
+  background: color-mix(in srgb, var(--envy-marker) 20%, transparent);
+}
+#link-preview-pin[hidden] { display: none; }
+#link-preview-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 12px;
+  background: var(--envy-background-opaque, var(--envy-background));
+}
+#link-preview-body .cm-editor { background: transparent; }
+#link-preview-body .cm-scroller { padding: 0; }
+#link-preview-body .cm-focused { outline: none; }
+.link-preview-message {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--envy-blockquote);
+}
+
+/* --- Footnotes / rules --------------------------------------------------- */
+.envy-footnote { color: var(--envy-footnote); font-size: 0.9em; }
+/* A footnote reference: a small raised number in the link colour, no brackets,
+   click to jump to its definition. Matches the Mac's superscript label. */
+.envy-footnote-ref {
+  font-size: 0.72em;
+  vertical-align: super;
+  line-height: 0;
+  color: var(--envy-link);
+  cursor: pointer;
+}
+/* A footnote definition's number: the same small raised shape as the
+   reference, in the dim footnote colour so it reads as the passive end. */
+.envy-footnote-defnum {
+  font-size: 0.72em;
+  vertical-align: super;
+  line-height: 0;
+  color: var(--envy-footnote);
+}
+.envy-hr { color: var(--envy-marker); }
+
+/* --- Tables --------------------------------------------------------------
+   GFM pipe tables, rendered as HTML when the cursor is outside them.
+   Grid, padding, header weight, and cell chrome match the Omarchy manual
+   (`omarchy.org/manual/ai/`): 1px borders, no fill, no zebra, shrink-to-fit. */
+/* Block widgets must not carry vertical margins: CodeMirror measures a block's
+   height from its border box, so a margin is space the height map does not
+   know about, and every click below the widget lands one line too low. Padding
+   is inside the measured box, so the spacing survives and clicks map right. */
+.envy-md-table-wrap {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  padding: 1em 0;
+}
+/* The scroller is inside the wrap rather than being it. `overflow-x: auto`
+   forces `overflow-y` to auto as well, which would clip the toolbar; keeping
+   the overflow on an inner element leaves the toolbar free to sit above the
+   table without a second stacking layer. */
+.envy-md-table-scroll {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.envy-md-table {
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.envy-md-table th,
+.envy-md-table td {
+  border: 1px solid color-mix(in srgb, var(--envy-marker) 80%, transparent);
+  padding: 0.5em 0.8em;
+  text-align: left;
+  vertical-align: top;
+}
+.envy-md-table th {
+  color: var(--envy-text);
+  font-weight: 700;
+}
+.envy-md-table code {
+  background: color-mix(in srgb, var(--envy-marker) 50%, transparent);
+  border-radius: 0.3em;
+  padding: 0.125em 0.4em;
+  white-space: nowrap;
+}
+.envy-md-table a {
+  color: var(--envy-link);
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-thickness: 0.0875em;
+  text-underline-offset: 0.125em;
+}
+.envy-md-table mark {
+  background: var(--envy-highlight);
+  color: var(--envy-highlight-text);
+}
+
+/* --- Editing a table in place ---------------------------------------------
+   Every cell is a one-line `contenteditable` that shows formatted markdown at
+   rest and its raw source while focused. The focus ring is drawn inside the
+   cell (a box-shadow, not an outline) so it can't push the table's layout
+   around mid-edit. */
+.envy-md-table th[contenteditable],
+.envy-md-table td[contenteditable] {
+  min-width: 2.5em;
+  outline: none;
+  cursor: text;
+  white-space: pre-wrap;
+}
+/* An empty cell has no line box of its own, which would leave nothing to
+   click on; the generated box gives it a row's height without putting a
+   character into the cell's text. */
+.envy-md-table th:empty::after,
+.envy-md-table td:empty::after {
+  content: '';
+  display: inline-block;
+  min-height: 1.2em;
+  vertical-align: text-bottom;
+}
+.envy-md-table th:focus,
+.envy-md-table td:focus {
+  box-shadow: inset 0 0 0 var(--envy-focus-thickness) var(--envy-link);
+  background: color-mix(in srgb, var(--envy-link) 12%, transparent);
+}
+
+/* The toolbar sits in the flow above the table, shown only while a cell has
+   focus. In the flow rather than floating over the note: the wrap is
+   `fit-content`, so a bar wider than a narrow table widens the wrap (up to the
+   pane) and then wraps onto a second line, instead of overhanging the pane
+   edge where the buttons couldn't be reached. */
+.envy-table-toolbar {
+  display: none;
+}
+.envy-md-table-wrap.editing .envy-table-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin-bottom: 4px;
+  max-width: 100%;
+}
+.envy-table-btn {
+  font-family: var(--envy-mono-family);
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--envy-marker) 55%, transparent);
+  border-radius: var(--envy-radius);
+  background: var(--envy-title-bar-background);
+  color: var(--envy-text);
+  cursor: default;
+  white-space: nowrap;
+}
+.envy-table-btn:hover {
+  background: color-mix(in srgb, var(--envy-link) 22%, transparent);
+}
+.envy-table-btn.destructive {
+  color: var(--envy-due-overdue);
+}
+.envy-table-btn.armed {
+  background: color-mix(in srgb, var(--envy-due-overdue) 22%, transparent);
+  border-color: var(--envy-due-overdue);
+}
+
+/* --- Fenced code ---------------------------------------------------------
+   GFM fences, rendered as a code panel when the cursor is outside them —
+   the same look the Omarchy manual's `<pre><code>` has: full-width, padded,
+   rounded, no fence markers, overflow-x for long lines. Chrome lives on the
+   wrap because WebKit flattens a real `<pre>` inside the editor.
+
+   The panel is pinned to the editor width (ResizeObserver in the widget, plus
+   `contain: inline-size` here) so a long line cannot stretch `.cm-content`
+   and pan the whole note. Overflow lives only on this wrap. The thumb is
+   painted even without hover: the overlay-until-hover rule on `*` would hide
+   the only way to read a long line. */
+.cm-editor .envy-md-pre-wrap {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  contain: inline-size;
+  margin: 1em 0;
+  padding: 1em 1.25em;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  background: color-mix(in srgb, var(--envy-code-background) 85%, var(--envy-background));
+  border-radius: 0.5em;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--envy-marker) 85%, transparent)
+    color-mix(in srgb, var(--envy-marker) 22%, transparent);
+}
+.cm-editor .envy-md-pre-wrap::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+.cm-editor .envy-md-pre-wrap::-webkit-scrollbar-track {
+  background: color-mix(in srgb, var(--envy-marker) 28%, transparent);
+}
+.cm-editor .envy-md-pre-wrap::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--envy-marker) 90%, var(--envy-text));
+  background-clip: border-box;
+  border: none;
+  border-radius: 0;
+}
+.cm-editor .envy-md-pre {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
+  padding: 0;
+  background: none;
+  font-family: var(--envy-mono-family);
+  font-size: 0.925em;
+  line-height: 1.5;
+  white-space: pre;
+}
+.cm-editor .envy-md-pre code {
+  background: none;
+  border-radius: 0;
+  padding: 0;
+  font-family: inherit;
+  font-size: 100%;
+  color: var(--envy-text);
+  white-space: pre;
+}

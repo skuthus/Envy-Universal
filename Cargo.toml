@@ -1,0 +1,52 @@
+[workspace]
+resolver = "2"
+members = ["src-tauri", "crates/envy-core", "crates/icon-generator"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Skyler Schoos"]
+
+[workspace.dependencies]
+# fancy-regex rather than the `regex` crate: every pattern in MarkdownStyler
+# and Note is transcribed verbatim from the macOS source, and several of them
+# rely on look-around — `(?<![\w#])#(...)` for tags, `(?<![\w])@(...)(?!\w)`
+# for due tokens, `(?<!\*)\*(...)\*(?!\*)` for italics. The `regex` crate
+# deliberately does not support look-around at all, so using it would mean
+# rewriting those patterns into a different shape and re-deriving their edge
+# cases from scratch — which is exactly how a port quietly stops matching the
+# original. fancy-regex backtracks (so it forfeits `regex`'s linear-time
+# guarantee) — but only for the patterns that actually contain look-around;
+# everything else it hands to the linear-time `regex` engine underneath.
+#
+# That distinction turned out to matter more than expected. This note used to
+# argue the backtracking cost was fine because these "run over one note's
+# content at a time, not the whole Index". That was wrong: search and the
+# derived-value caches run them over every note in the Index. Measured on a
+# 5,000-note vault, the three corpus-wide look-around patterns cost 131 ms
+# (quoted phrase search), 126 ms (tags) and 140 ms (due dates), against ~2 ms
+# for the look-around-free patterns over the same text.
+#
+# So those three now do their boundary check in Rust beside the pattern instead
+# of inside it — same rule, same results, 26-40x faster. Every other pattern
+# keeps its look-around, because they run over one visible viewport rather than
+# the corpus, where the cost is invisible and transcribing the Mac source
+# verbatim is still worth more than asymptotics.
+fancy-regex = "0.14"
+rayon = "1.10"
+# Suggested links match every note title in the Index against one note's text.
+# Doing that title-by-title is one substring scan per title per note read —
+# 36 ms on a 30,000-note vault for a well-linked note. One Aho-Corasick pass
+# finds all of them at once, and the automaton is built once per Index rather
+# than once per lookup. Already in the tree as a `fancy-regex` dependency.
+aho-corasick = "1.1"
+# `memchr2` behind the case-folding substring search that replaced storing a
+# lowercased copy of every note body; see `Note::folded_content`.
+memchr = "2"
+# std::fs::canonicalize returns a \\?\ UNC path on Windows, which leaks into
+# every note id and shows up in error messages. dunce hands back the ordinary
+# form wherever one exists.
+dunce = "1"
+notify = "7"
+serde = { version = "1", features = ["derive"] }
+chrono = "0.4"

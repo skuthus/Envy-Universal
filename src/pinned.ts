@@ -1,0 +1,390 @@
+//! The pinned-note popover.
+//!
+//! A second, small, always-on-top window showing one note, opened by clicking
+//! the tray icon. The whole point is that it appears *without* summoning the
+//! app: a scratchpad one click away, which is what the Mac's menu-bar pinned
+//! note is for. Summoning the main window to read a two-line note would defeat
+//! the purpose.
+//!
+//! It shares the styler and theme with the main window, so a pinned note looks
+//! exactly like it does in the app — same markdown rendering, same colours.
+
+import { EditorView, keymap, drawSelection } from '@codemirror/view'
+import { EditorState } from '@codemirror/state'
+import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
+import { invoke } from '@tauri-apps/api/core'
+import { listen, emit } from '@tauri-apps/api/event'
+import { getCurrentWindow } from '@tauri-apps/api/window'
+import { envyStyler, embedHost, isImageTarget } from './styler'
+import { makeEmbedHost } from './embed-host'
+import { openImageMenu, renameAttachmentFlow } from './image-menu'
+import { setPromptFocusReturn } from './prompt-modal'
+import { listEditing } from './lists'
+import { insertTable, tableEditing } from './tables'
+import { matches as matchesShortcut } from './shortcuts'
+import {
+  editorCompletion,
+  completionSources,
+  loadCompletionSources,
+  type CompletionSources,
+} from './completion'
+import { enviousDark, initAppearance } from './theme'
+import { installSmoothScroll } from './smooth-scroll'
+import { installWindowChrome } from './window-chrome'
+import { getBool } from './config'
+
+// This window is where the silent-failure pattern first bit — see `hide()`
+// below. Its own entry point, so it needs its own handler; the main window's
+// does not cover it.
+window.addEventListener('unhandledrejection', (e) => {
+  console.error('unhandled rejection — something failed silently:', e.reason)
+})
+installSmoothScroll()
+installWindowChrome({
+  close: 'hide',
+  dragEl: document.getElementById('pinned-title-bar'),
+})
+
+interface NoteDto {
+  id: string
+  title: string
+  content: string | null
+}
+
+const titleEl = document.getElementById('pinned-title')!
+const editorEl = document.getElementById('pinned-editor')!
+
+let noteId: string | null = null
+let savedContent = ''
+let saveTimer: number | undefined
+// Read from the config file, which every window shares. A function rather
+// than a captured value: the file can change while this window is open.
+const requireModifier = () => getBool('editor', 'require_modifier_for_links')
+
+/// Ghost-completion pools, fetched with the note and again whenever the index
+/// changes, so a `#tag` or `[[link]]` completes here as it does in the app.
+let completion: CompletionSources = { titles: [], tags: [] }
+async function refreshCompletionSources() {
+  completion = await loadCompletionSources()
+}
+
+/// The `[[…]]` target at a position — alias and heading stripped, as the main
+/// window resolves it.
+function wikiLinkTargetAt(v: EditorView, pos: number): string | null {
+  const line = v.state.doc.lineAt(pos)
+  const re = /!?\[\[([^\[\]]+)\]\]/g
+  for (const m of line.text.matchAll(re)) {
+    const from = line.from + m.index!
+    const to = from + m[0].length
+    if (pos >= from && pos <= to) {
+      const target = m[1].split('|')[0].split('#')[0].trim()
+      return target || null
+    }
+  }
+  return null
+}
+
+/// Following a link opens the target in the main window (creating it if
+/// needed) — the same drive-the-main-editor behaviour the pop-out has. Bringing
+/// the main window forward blurs this popover, which then hides itself unless
+/// it's been kept open.
+async function followInMain(target: string) {
+  await flush()
+  try {
+    const note = await invoke<NoteDto>('open_link', { target })
+    await invoke('open_in_main_window', { id: note.id })
+  } catch (e) {
+    console.error('could not follow the link', e)
+  }
+}
+
+const view = new EditorView({
+  state: EditorState.create({
+    doc: '',
+    extensions: [
+      history(),
+      drawSelection(),
+      // List continuation / indent / renumber, as in the main and pop-out
+      // editors.
+      listEditing,
+      tableEditing,
+      keymap.of([...defaultKeymap, ...historyKeymap]),
+      EditorView.lineWrapping,
+      editorCompletion,
+      completionSources.of(() => completion),
+      // Resolves `![[note]]` transclusions and `![[image.png]]` attachments, so
+      // a pinned note renders images (and embeds) like the main window —
+      // including the image's right-click size/rename/reveal menu.
+      embedHost.of({
+        ...makeEmbedHost(() => noteId),
+        onImageContextMenu: (raw, spec, x, y) =>
+          openImageMenu(raw, spec, x, y, view, (name) => void renamePinnedImage(name)),
+      }),
+      envyStyler,
+      EditorView.domEventHandlers({
+        mousedown: (event, v) => {
+          if (event.button !== 0) return false
+          // Clicks inside a rendered embed belong to the widget, not a follow.
+          if ((event.target as HTMLElement | null)?.closest('.envy-image-embed, .envy-embed, .envy-md-table-wrap, .envy-md-pre-wrap')) {
+            return false
+          }
+          const pos = v.posAtCoords({ x: event.clientX, y: event.clientY })
+          if (pos === null) return false
+          if (requireModifier() && !event.ctrlKey) return false
+          const target = wikiLinkTargetAt(v, pos)
+          if (!target) return false
+          event.preventDefault()
+          // An image reference opens the file; a note reference opens in main.
+          if (isImageTarget(target)) {
+            void invoke('open_attachment', { name: target })
+            return true
+          }
+          void followInMain(target)
+          return true
+        },
+      }),
+      EditorView.updateListener.of((u) => {
+        if (u.docChanged && noteId) {
+          window.clearTimeout(saveTimer)
+          saveTimer = window.setTimeout(() => {
+            saveTimer = undefined
+            void save()
+          }, 400)
+        }
+      }),
+    ],
+  }),
+  parent: editorEl,
+})
+
+async function save() {
+  if (!noteId) return
+  const content = view.state.doc.toString()
+  // Same guard as the main window: an identical rewrite would touch the
+  // modified time and reshuffle the list for nothing.
+  if (content === savedContent) return
+  try {
+    await invoke('save_note', { id: noteId, content })
+    savedContent = content
+  } catch (e) {
+    console.error('pinned save failed', e)
+  }
+}
+
+async function load() {
+  void refreshCompletionSources()
+  const id = await invoke<string | null>('pinned_note_id')
+  if (!id) {
+    titleEl.textContent = 'No note pinned'
+    return
+  }
+  const note = await invoke<NoteDto | null>('read_note', { id })
+  if (!note) {
+    titleEl.textContent = 'Pinned note is gone'
+    return
+  }
+  noteId = note.id
+  savedContent = note.content ?? ''
+  titleEl.textContent = note.title
+  view.dispatch({
+    changes: { from: 0, to: view.state.doc.length, insert: savedContent },
+    selection: { anchor: 0 },
+  })
+}
+
+void initAppearance(() => applyPopoverZoom())
+
+// Flush before the window goes away — hiding is the normal way this closes,
+// and a pending debounce would otherwise be dropped along with it.
+async function flush() {
+  window.clearTimeout(saveTimer)
+  await save()
+}
+
+/// Renames the attachment behind a right-clicked image. The shared flow rewrites
+/// references vault-wide in Rust; here we flush this popover's buffer first, then
+/// nudge the main window to rescan and reload our own note with the new name.
+function renamePinnedImage(oldName: string) {
+  return renameAttachmentFlow(oldName, {
+    flush,
+    reload: async () => {
+      await emit('index-changed')
+      await load()
+    },
+  })
+}
+
+// A dialog (rename) hands focus back to the editor in this popover.
+setPromptFocusReturn(() => view.focus())
+
+// Titles and tags come and go as notes are edited elsewhere; every window's
+// save announces itself this way, so the pools stay current without polling.
+void listen('index-changed', () => void refreshCompletionSources())
+
+/// Hiding is deliberately allowed to fail without taking the caller with it.
+///
+/// It failed silently once already, and for longer than first diagnosed. The
+/// original reading was that this window was missing from a capability's
+/// `windows` list — true, and necessary to fix, but not the whole cause.
+/// `hide()` also needs `core:window:allow-hide` named explicitly: `core:default`
+/// sounds comprehensive but its window half covers only the read-only calls, so
+/// hiding was still being rejected after the window was listed. Because both
+/// buttons awaited the hide *before* doing their work, the rejection killed the
+/// action and neither button appeared to do anything; reordering made them work
+/// while the hide itself went on failing into this log line, which is precisely
+/// what a caught-and-logged error is for.
+async function hide() {
+  // Where it is now is where it should come back, and only Hyprland knows.
+  try {
+    await invoke('remember_pinned_window')
+  } catch {
+    // Outside Tauri, or the command is unavailable: nothing to remember.
+  }
+  try {
+    await getCurrentWindow().hide()
+  } catch (e) {
+    console.error('could not hide the pinned window', e)
+  }
+}
+
+// No Unpin button here, matching the Mac: its popover carries the keep-open pin
+// and "Open in Envy", nothing else. Unpinning is a thing you do to the tray, not
+// something the note's own window should offer — and it stays reachable three
+// ways: "Unpin Note" in the tray menu, "Unpin from Tray" on the note's context
+// menu, and Ctrl+Alt+Shift+P from any app.
+document.getElementById('pinned-open')!.onclick = async () => {
+  await flush()
+  try {
+    if (noteId) await invoke('open_in_main_window', { id: noteId })
+  } catch (e) {
+    console.error('open failed', e)
+  }
+  await hide()
+}
+
+// --- Keep open ---------------------------------------------------------------
+// The Mac's panel closes as soon as focus moves elsewhere, unless its pin
+// button is on — that button is the whole reason the behaviour exists. This
+// window had neither half: it never closed on its own, which is the pinned-open
+// state permanently, so adding the toggle alone would have changed nothing.
+
+let keepOpen = localStorage.getItem('menuBarPopoverPinnedOpen') === 'true'
+const keepOpenEl = document.getElementById('pinned-keep-open') as HTMLButtonElement
+
+function renderKeepOpen() {
+  keepOpenEl.classList.toggle('active', keepOpen)
+  keepOpenEl.title = keepOpen
+    ? 'Keeping this window open — click to let it close when you click elsewhere'
+    : 'Keep this window open and on top, even when you click elsewhere'
+}
+
+keepOpenEl.onclick = () => {
+  keepOpen = !keepOpen
+  localStorage.setItem('menuBarPopoverPinnedOpen', String(keepOpen))
+  renderKeepOpen()
+}
+renderKeepOpen()
+
+// Closing on blur is what the pin suppresses. The note is flushed first —
+// losing focus is not a reason to lose an edit.
+//
+// Not on the instant, though. Hyprland's default is focus-follows-mouse, so
+// every window the pointer crosses on its way from the tray to this panel
+// takes focus for a moment, and hiding on the first blur meant the panel
+// vanished before the pointer could reach it. A blur starts a grace period
+// instead; the pointer arriving (which also refocuses the panel under
+// follow-mouse) or focus returning cancels it. Only a blur with the pointer
+// parked elsewhere for the whole period hides the panel — as close to the
+// Mac's "click outside" as a compositor that focuses on hover allows.
+const BLUR_GRACE_MS = 1200
+let blurTimer: number | undefined
+let pointerInside = false
+
+function cancelBlurHide() {
+  if (blurTimer !== undefined) {
+    clearTimeout(blurTimer)
+    blurTimer = undefined
+  }
+}
+
+// `pointermove` as well as `pointerenter`: a pointer already resting over
+// the panel when it maps gets no enter event until it moves.
+for (const type of ['pointerenter', 'pointermove'] as const) {
+  document.documentElement.addEventListener(type, () => {
+    pointerInside = true
+    cancelBlurHide()
+  })
+}
+document.documentElement.addEventListener('pointerleave', () => {
+  pointerInside = false
+})
+
+try {
+  void getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+    if (focused) {
+      cancelBlurHide()
+      return
+    }
+    if (keepOpen || pointerInside) return
+    cancelBlurHide()
+    blurTimer = window.setTimeout(() => {
+      blurTimer = undefined
+      if (keepOpen || pointerInside) return
+      void flush().then(hide)
+    }, BLUR_GRACE_MS)
+  })
+} catch {
+  // Running outside Tauri.
+}
+
+// --- Zoom --------------------------------------------------------------------
+// The popover keeps its own zoom, separate from the editor's. An offset in
+// points rather than a multiplier, and clamped to the Mac's own -6…+24.
+
+let popoverZoom = Number(localStorage.getItem('menuBarPopoverFontZoom') ?? '0')
+function applyPopoverZoom() {
+  const base = Number.parseFloat(enviousDark.fontSize)
+  const px = Math.max(9, Math.round(base + popoverZoom))
+  document.documentElement.style.setProperty('--envy-font-size', `${px}px`)
+  document.documentElement.style.setProperty('--envy-line-height', `${Math.round(px * 1.6)}px`)
+  localStorage.setItem('menuBarPopoverFontZoom', String(popoverZoom))
+  view.requestMeasure()
+}
+function setPopoverZoom(next: number) {
+  popoverZoom = Math.max(-6, Math.min(24, next))
+  applyPopoverZoom()
+}
+applyPopoverZoom()
+
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    void flush().then(hide)
+    return
+  }
+  // The one editor action this window shares with the main one — read through
+  // the registry, so a remap there applies here too.
+  if (noteId && matchesShortcut('insertTable', e)) {
+    e.preventDefault()
+    insertTable(view)
+    return
+  }
+  if (!e.ctrlKey || e.altKey || e.shiftKey) return
+  // Ctrl and the same three keys the Mac binds to Command.
+  if (e.key === '-') {
+    e.preventDefault()
+    setPopoverZoom(popoverZoom - 1)
+  } else if (e.key === '0') {
+    e.preventDefault()
+    setPopoverZoom(0)
+  } else if (e.key === '=' || e.key === '+') {
+    e.preventDefault()
+    setPopoverZoom(popoverZoom + 1)
+  }
+})
+
+// Re-read on every show: the note may have changed in the app, or been
+// swapped for a different one, since this window was last visible.
+void listen('pinned-note-changed', () => void load())
+
+void load()
+view.focus()

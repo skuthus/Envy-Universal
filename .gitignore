@@ -1,0 +1,45 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Cargo build output. This lives at the repo root rather than under src-tauri/
+# because the workspace root is here — src-tauri/.gitignore's own /target/ rule
+# no longer covers it.
+/target/
+
+# Local, per-machine Claude Code settings — not project config.
+.claude/settings.local.json
+
+# Updater signing keys. The private key signs every release, and an install can
+# only accept updates signed by the one key its build was compiled against — so
+# losing it, or leaking it, cannot be undone by generating another. It belongs
+# in a password manager and a repository secret, never in the tree. The .pub is
+# harmless (it is already in tauri.conf.json) but is ignored alongside it so a
+# stray `git add` of the pair cannot take the private half with it.
+*.key
+envy-updater-key
+envy-updater-key.pub
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Agent worktrees (Claude Code), never project content.
+.claude/worktrees/

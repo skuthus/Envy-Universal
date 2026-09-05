@@ -1,0 +1,12 @@
+{
+  "cold_open": 54.299,
+  "reload_one_file": 0.085,
+  "search_1char": 2.216,
+  "search_word": 2.273,
+  "search_8_terms": 31.084,
+  "search_page0_serialize_bytes": 186079,
+  "interlinks_hub": 27.668,
+  "folder_counts": 3.97,
+  "peak_rss_mb": 85.859,
+  "machine": "Linux x86_64 / 16 cpu / 2026-09-01"
+}

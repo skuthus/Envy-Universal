@@ -1,0 +1,20 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capability for the main window and the pinned-note popover. Both are named here because capabilities are per-window: a window left out cannot even hide itself, and the calls are denied at runtime rather than failing to compile. Note that `core:default` is not as broad as it sounds — its window half grants only the read-only calls (is-visible, inner-size, title and so on) plus internal-toggle-maximize. Anything that actually moves or hides a window has to be asked for by name, which is why allow-hide is listed separately below despite hide() looking like the most ordinary thing a window could do. The opener plugin is asked for by name rather than as `opener:default`: the default set also carries reveal-item-in-dir, unscoped, and the frontend never calls it — showing a note in the file manager is done from Rust, which needs no capability. What is left opens http/https/mailto/tel urls, which is all a link in a note ever does.",
+  "windows": ["main", "pinned"],
+  "permissions": [
+    "core:default",
+    "opener:allow-open-url",
+    "opener:allow-default-urls",
+    "core:window:allow-hide",
+    "core:window:allow-close",
+    "core:window:allow-minimize",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-start-dragging",
+    "core:tray:default",
+    "core:menu:default"
+  ]
+}
