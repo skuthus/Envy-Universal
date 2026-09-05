@@ -194,7 +194,10 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         templates
             .into_iter()
             .map(|t| {
-                let id = format!("template:{}", t.path.to_string_lossy());
+                let id = format!(
+                    "template:{}",
+                    t.path.to_string_lossy().replace('\\', "/")
+                );
                 MenuItem::with_id(app, id, t.name, true, None::<&str>)
             })
             .collect::<Result<Vec<_>, _>>()?

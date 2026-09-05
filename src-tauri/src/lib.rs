@@ -1375,7 +1375,7 @@ fn can_restore(state: State<AppState>) -> bool {
     state.store.lock().unwrap().can_restore_last_deleted()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn set_include_subfolders(include: bool, state: State<AppState>) -> usize {
     let mut store = state.store.lock().unwrap();
     store.set_include_subfolders(include);
@@ -2773,7 +2773,11 @@ fn forget_kindle_history(state: State<AppState>) -> Result<(), String> {
 /// and each pop-out are covered by the same rule.
 fn navigation_guard<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
     tauri::plugin::Builder::new("envy-navigation-guard")
-        .on_navigation(|_webview, url| navigation_allowed(url))
+        .on_navigation(|_webview, url| {
+            let ok = navigation_allowed(url);
+            runtime_log(&format!("nav {} {url}", if ok { "ok" } else { "DENIED" }));
+            ok
+        })
         .build()
 }
 
@@ -2790,19 +2794,35 @@ fn navigation_allowed(url: &tauri::Url) -> bool {
         // `tauri.localhost` custom-protocol host elsewhere.
         "tauri" => host == "localhost",
         "http" | "https" => {
+            // wry serves the app as `https://tauri.localhost/`; IPC is
+            // `ipc.localhost`. Anything else under `.localhost` is still this
+            // machine — a remote page cannot mint that suffix.
             host == "tauri.localhost"
-                // `npm run tauri dev` serves from Vite — devUrl in
-                // tauri.conf.json.
-                || (cfg!(debug_assertions) && host == "localhost" && url.port() == Some(1420))
+                || host == "ipc.localhost"
+                || host.ends_with(".localhost")
+                // Vite's dev server. `cfg(dev)` is what `tauri dev` sets;
+                // `debug_assertions` covers a plain `cargo build` of the
+                // debug profile. A release `cargo build` must not follow
+                // this URL — nothing is listening, and denying it used to
+                // leave the webview on about:blank.
+                || ((cfg!(dev) || cfg!(debug_assertions))
+                    && host == "localhost"
+                    && url.port() == Some(1420))
         }
-        // WebKitGTK loads a blank page before the real one.
-        "about" => url.path() == "blank",
+        // WebKitGTK and WebView2 both start on about:blank. The path is
+        // "blank" in the url crate, but some engines send "/" or empty.
+        "about" => {
+            let path = url.path().trim_start_matches('/');
+            path.is_empty() || path == "blank"
+        }
         _ => false,
     }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    install_panic_log();
+    runtime_log("run()");
     let builder = tauri::Builder::default()
         .plugin(navigation_guard())
         .plugin(tauri_plugin_opener::init())
@@ -2843,8 +2863,7 @@ pub fn run() {
         .plugin(
             tauri_plugin_window_state::Builder::new()
                 .with_state_flags(
-                    tauri_plugin_window_state::StateFlags::SIZE
-                        | tauri_plugin_window_state::StateFlags::POSITION
+                    tauri_plugin_window_state::StateFlags::POSITION
                         | tauri_plugin_window_state::StateFlags::MAXIMIZED,
                 )
                 .with_denylist(&[PINNED_WINDOW])
@@ -2871,13 +2890,20 @@ pub fn run() {
             // plugged in — so a failure to open it falls back to the default
             // rather than refusing to start. The default itself is created on
             // demand by `open`, so it can't fail the same way.
+            //
+            // Subfolder scanning is the config's, not hardcoded false: opening
+            // flat and then flipping it from JS used to re-read the whole
+            // vault on the UI thread after the window was already up, which
+            // on a multi-thousand-note Index froze WebView2 long enough that
+            // Windows treated the app as gone.
             let mut dir = persisted_index_directory(app.handle());
-            let store = match NoteStore::open(&dir, false) {
+            let include_subfolders = config::include_subfolders();
+            let store = match NoteStore::open(&dir, include_subfolders) {
                 Ok(store) => store,
                 Err(_) => {
                     dir = default_index_directory();
                     save_index_directory(app.handle(), &dir);
-                    NoteStore::open(&dir, false)?
+                    NoteStore::open(&dir, include_subfolders)?
                 }
             };
             // A brand-new Index gets a welcome note, so the first launch isn't
@@ -2935,13 +2961,20 @@ pub fn run() {
                 popouts: Mutex::new(std::collections::HashMap::new()),
             });
 
+            runtime_log("store ready");
             setup_global_hotkey(app.handle())?;
             // Seeded from `[shortcuts]` so a chord set in the config works
             // from the moment the app is up. The frontend calls
             // `set_global_shortcuts` again once it has read its own settings,
             // which lands on the same four bindings.
             register_global_shortcuts(app.handle(), config::global_shortcuts());
-            tray::setup(app.handle())?;
+            runtime_log("hotkeys ready");
+            // A failed tray must not take the window down with it.
+            if let Err(e) = tray::setup(app.handle()) {
+                runtime_log(&format!("tray setup failed: {e}"));
+            } else {
+                runtime_log("tray ready");
+            }
             #[cfg(target_os = "linux")]
             control::serve(app.handle());
             // Re-assert the remembered on-top state now the window exists.
@@ -2951,6 +2984,7 @@ pub fn run() {
             // Edits to config.md and themes/ made anywhere else land as
             // `config-changed` / `themes-changed`.
             config::spawn_watcher(app.handle().clone());
+            runtime_log("setup ok");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -3037,7 +3071,8 @@ pub fn run() {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 // Main and pinned hide to the tray; pop-outs are real windows
                 // and should close. Without this, the last hide also quits.
-                if window.label() == "main" || window.label() == PINNED_WINDOW {
+                let label = window.label();
+                if label == "main" || label == PINNED_WINDOW {
                     api.prevent_close();
                     let _ = window.hide();
                 }
@@ -3045,14 +3080,84 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
-        .run(|_app, event| {
-            if let tauri::RunEvent::ExitRequested { api, code, .. } = event {
-                // None: last window hid. Some: tray Quit / app.exit(code).
-                if code.is_none() {
-                    api.prevent_exit();
+        .run(|app, event| {
+            match event {
+                tauri::RunEvent::Ready => ensure_main_visible(app),
+                tauri::RunEvent::ExitRequested { api, code, .. } => {
+                    runtime_log(&format!("ExitRequested code={code:?}"));
+                    // None: last window hid. Some: tray Quit / app.exit(code).
+                    if code.is_none() {
+                        api.prevent_exit();
+                    }
                 }
+                tauri::RunEvent::WindowEvent {
+                    label,
+                    event: tauri::WindowEvent::Destroyed,
+                    ..
+                } => runtime_log(&format!("Destroyed {label}")),
+                _ => {}
             }
         });
+}
+
+fn ensure_main_visible(app: &tauri::AppHandle) {
+    runtime_log("Ready");
+    let Some(w) = app.get_webview_window("main") else {
+        runtime_log("Ready: no main window");
+        return;
+    };
+    let _ = w.show();
+    let _ = w.unminimize();
+    if let Ok(size) = w.inner_size() {
+        runtime_log(&format!("main physical={}x{}", size.width, size.height));
+        if size.width < 400 || size.height < 300 {
+            let _ = w.set_size(tauri::LogicalSize::new(800.0, 600.0));
+            let _ = w.center();
+        }
+    }
+    if let Ok(url) = w.url() {
+        runtime_log(&format!("main url={url}"));
+    }
+    let _ = w.set_focus();
+}
+
+fn runtime_log(msg: &str) {
+    let dir = dirs::config_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("envy");
+    let _ = std::fs::create_dir_all(&dir);
+    let line = format!(
+        "{} {}\n",
+        chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+        msg
+    );
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("runtime.log"))
+    {
+        use std::io::Write;
+        let _ = f.write_all(line.as_bytes());
+        let _ = f.sync_all();
+    }
+}
+
+fn install_panic_log() {
+    std::panic::set_hook(Box::new(|info| {
+        let loc = info
+            .location()
+            .map(|l| format!("{}:{}", l.file(), l.line()))
+            .unwrap_or_else(|| "unknown".into());
+        let msg = if let Some(s) = info.payload().downcast_ref::<&str>() {
+            (*s).to_string()
+        } else if let Some(s) = info.payload().downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "Box<dyn Any>".into()
+        };
+        runtime_log(&format!("panic at {loc}: {msg}"));
+        eprintln!("panic at {loc}: {msg}");
+    }));
 }
 
 /// The starter templates seeded into Templates/ on first launch, transcribed

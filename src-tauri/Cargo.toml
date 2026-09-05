@@ -51,6 +51,14 @@ gtk = "0.18"
 # that takes a raw `path: String` without review. Already in the lockfile.
 regex = "1"
 
+# Production loads the bundled `dist/` over wry's custom protocol.
+# `tauri dev` omits this so the window talks to Vite; `tauri build` and a
+# plain `cargo build --release --features custom-protocol` turn it on.
+# Without it the webview asks for http://localhost:1420 and Edge shows
+# "Hmm, this page can't be reached".
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
 [target.'cfg(windows)'.dependencies]
 # The updater has a release channel only on Windows; see RELEASING.md.
 tauri-plugin-updater = "2"
