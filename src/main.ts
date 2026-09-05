@@ -3643,6 +3643,39 @@ async function performSearch() {
   highlighted = 0
   renderList()
   renderCreateHint()
+  await revealFirstResult(gen)
+}
+
+/// The Mac's list selection follows the query: as it changes, the first result
+/// is selected and the editor shows it, scrolled to the match — you read the
+/// hit as you type rather than after an extra Return. Only when the *query*
+/// changed: the watcher and every settings toggle re-run the same search, and
+/// re-selecting the top row then would yank you out of whatever you had
+/// arrowed or clicked to. Clearing the box keeps what's open — a blank query
+/// selects nothing, it just stops filtering. No result at all leaves nothing
+/// selected, so the editor empties, the way the Mac's does ahead of "Press ⏎
+/// to create". Focus stays in the box throughout.
+let lastRevealedQuery = ''
+async function revealFirstResult(gen: number) {
+  const query = searchInput.value
+  if (query === lastRevealedQuery) return
+  lastRevealedQuery = query
+  if (!query.trim()) return
+  const first = results[highlighted]
+  if (!first) {
+    if (activePane.noteId === null && activePane.external === null) return
+    // `closeEditor` drops the buffer without writing it; an edit still
+    // waiting on its timer would be lost with it.
+    cancelPendingSave()
+    await save()
+    if (gen !== searchGeneration) return
+    closeEditor()
+    return
+  }
+  // Re-opening the note already showing would reset its cursor and scroll
+  // for nothing; the jump to the new query's first match happened above.
+  if (first.id === activePane.noteId) return
+  await openHighlighted(false)
 }
 
 /// Focus the editor after opening, unless the setting says to stay in the
