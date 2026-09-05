@@ -255,27 +255,48 @@ fn eye_image(eye: Eye) -> Option<Image<'static>> {
 }
 
 /// Light glyph on a dark taskbar (Windows 11 default), dark glyph otherwise.
+///
+/// Read straight from the registry, never by spawning `reg query`. This runs
+/// on the UI thread, and a console process started from a windowless app has
+/// no console to inherit, so Windows creates one — and with Windows Terminal
+/// as the default terminal (the Windows 11 default) that means starting a
+/// terminal session, which took ~5 s here. The same thread serves the
+/// `tauri.localhost` protocol and every IPC call, so for those seconds the
+/// webview could not even fetch `index.html`: the window was up, the content
+/// was not.
 fn tray_colour() -> [u8; 3] {
     static COLOUR: OnceLock<[u8; 3]> = OnceLock::new();
     *COLOUR.get_or_init(|| {
-        let light = std::process::Command::new("reg")
-            .args([
-                "query",
-                r"HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
-                "/v",
-                "SystemUsesLightTheme",
-            ])
-            .output()
-            .ok()
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .map(|s| s.contains("0x1"))
-            .unwrap_or(false);
-        if light {
+        if system_uses_light_theme() {
             [0x22, 0x22, 0x22]
         } else {
             [0xEE, 0xEE, 0xEE]
         }
     })
+}
+
+/// `SystemUsesLightTheme` under `HKCU\...\Themes\Personalize`. Absent or
+/// unreadable means dark, which is also what Windows 11 ships with.
+fn system_uses_light_theme() -> bool {
+    use windows::core::w;
+    use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
+
+    let mut value: u32 = 0;
+    let mut size = std::mem::size_of::<u32>() as u32;
+    // SAFETY: the out-pointers are to locals that outlive the call, and
+    // `size` tells the API exactly how much room `value` has.
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            w!(r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"),
+            w!("SystemUsesLightTheme"),
+            RRF_RT_REG_DWORD,
+            None,
+            Some(&mut value as *mut u32 as *mut _),
+            Some(&mut size),
+        )
+    };
+    status.is_ok() && value == 1
 }
 
 // The Mac draws the eye on an 18pt canvas; these are its points with y

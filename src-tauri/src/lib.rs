@@ -3156,8 +3156,11 @@ fn ensure_tray(app: &tauri::AppHandle) {
     if STARTED.swap(true, Ordering::SeqCst) {
         return;
     }
+    // Timed because this runs on the UI thread, which also serves the
+    // webview's protocol and IPC: anything slow here is a blank window.
+    let started = Instant::now();
     match tray::setup(app) {
-        Ok(()) => runtime_log("tray ready"),
+        Ok(()) => runtime_log(&format!("tray ready in {}ms", started.elapsed().as_millis())),
         Err(e) => runtime_log(&format!("tray setup failed: {e}")),
     }
 }
