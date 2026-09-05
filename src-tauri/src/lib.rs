@@ -25,6 +25,8 @@ mod kindle_mtp;
 mod omarchy;
 pub mod themes;
 mod tray;
+#[cfg(windows)]
+pub mod boot_windows;
 
 #[cfg(not(target_os = "linux"))]
 #[allow(dead_code)]
@@ -214,6 +216,10 @@ pub struct AppState {
     /// label forbids), so the page asks for its note through this map. Dead
     /// entries are swept lazily whenever a new pop-out is made.
     popouts: Mutex<std::collections::HashMap<String, String>>,
+    /// False until the first full Index scan has swapped into `store`. Search
+    /// can run against the empty store in the meantime so the window is not
+    /// stuck waiting on thousands of files.
+    index_ready: AtomicBool,
 }
 
 /// Translates the Mac's date tokens to chrono's strftime.
@@ -439,6 +445,8 @@ struct SearchSpec {
 struct SearchPage {
     notes: Vec<NoteDto>,
     total: usize,
+    /// False while the first Index scan is still running.
+    ready: bool,
 }
 
 impl SearchSpec {
@@ -490,6 +498,7 @@ fn search(spec: SearchSpec, offset: usize, limit: usize, state: State<AppState>)
     let hits = ordered_hits(store.notes(), &spec, &root);
     SearchPage {
         total: hits.len(),
+        ready: state.index_ready.load(Ordering::Relaxed),
         notes: hits
             .into_iter()
             .skip(offset)
@@ -2775,7 +2784,9 @@ fn navigation_guard<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
     tauri::plugin::Builder::new("envy-navigation-guard")
         .on_navigation(|_webview, url| {
             let ok = navigation_allowed(url);
-            runtime_log(&format!("nav {} {url}", if ok { "ok" } else { "DENIED" }));
+            if !ok {
+                runtime_log(&format!("nav DENIED {url}"));
+            }
             ok
         })
         .build()
@@ -2873,6 +2884,15 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
+        .on_page_load(|window, payload| {
+            if window.label() == "main"
+                && matches!(payload.event(), tauri::webview::PageLoadEvent::Finished)
+            {
+                runtime_log(&format!("page-load finished url={}", payload.url()));
+                #[cfg(windows)]
+                boot_windows::dismiss();
+            }
+        })
         .setup(|app| {
             // Before anything reads a setting: create ~/.config/envy if it is
             // missing and fold the two files Rust used to keep its own state
@@ -2891,39 +2911,20 @@ pub fn run() {
             // rather than refusing to start. The default itself is created on
             // demand by `open`, so it can't fail the same way.
             //
-            // Subfolder scanning is the config's, not hardcoded false: opening
-            // flat and then flipping it from JS used to re-read the whole
-            // vault on the UI thread after the window was already up, which
-            // on a multi-thousand-note Index froze WebView2 long enough that
-            // Windows treated the app as gone.
+            // The first scan of a large Index is done on a background thread.
+            // `setup` must return in milliseconds: it runs on the UI thread,
+            // and holding it for the walk left the window unresponsive until
+            // every file was read.
             let mut dir = persisted_index_directory(app.handle());
             let include_subfolders = config::include_subfolders();
-            let store = match NoteStore::open(&dir, include_subfolders) {
+            let store = match NoteStore::open_unscanned(&dir, include_subfolders) {
                 Ok(store) => store,
                 Err(_) => {
                     dir = default_index_directory();
                     save_index_directory(app.handle(), &dir);
-                    NoteStore::open(&dir, include_subfolders)?
+                    NoteStore::open_unscanned(&dir, include_subfolders)?
                 }
             };
-            // A brand-new Index gets a welcome note, so the first launch isn't
-            // an empty window with no hint of what to type. Writing it is the
-            // only thing here that changes what a scan would find, so it is
-            // also the only thing that costs a second read of the folder —
-            // opening the store twice unconditionally meant every launch paid
-            // the whole scan twice.
-            let mut store = store;
-            if store.notes().is_empty() {
-                let welcome = dir.join("Welcome to Envy.md");
-                if !welcome.exists() {
-                    std::fs::write(&welcome, WELCOME_NOTE)?;
-                    store.reload();
-                }
-            }
-            seed_sample_templates_if_needed(app.handle(), &dir);
-
-            // No launch update check on Linux: releases come through pacman,
-            // and `run_update_check` only ever runs from Check Now or the tray.
 
             let suppress_until = Arc::new(Mutex::new(Instant::now()));
 
@@ -2943,6 +2944,9 @@ pub fn run() {
                 let Some(state) = handle.try_state::<AppState>() else {
                     return;
                 };
+                if !state.index_ready.load(Ordering::Relaxed) {
+                    return;
+                }
                 state.store.lock().unwrap().reload_paths(paths);
                 // The frontend re-runs its query rather than being handed
                 // results, so a reload can't clobber whatever the user has
@@ -2959,9 +2963,11 @@ pub fn run() {
                 global_shortcuts: Mutex::new(std::collections::HashMap::new()),
                 template_date_format: Mutex::new("yyyy-MM-dd".to_string()),
                 popouts: Mutex::new(std::collections::HashMap::new()),
+                index_ready: AtomicBool::new(false),
             });
 
-            runtime_log("store ready");
+            spawn_index_load(app.handle().clone(), dir);
+            runtime_log("store opening in background");
             setup_global_hotkey(app.handle())?;
             // Seeded from `[shortcuts]` so a chord set in the config works
             // from the moment the app is up. The frontend calls
@@ -2969,12 +2975,6 @@ pub fn run() {
             // which lands on the same four bindings.
             register_global_shortcuts(app.handle(), config::global_shortcuts());
             runtime_log("hotkeys ready");
-            // A failed tray must not take the window down with it.
-            if let Err(e) = tray::setup(app.handle()) {
-                runtime_log(&format!("tray setup failed: {e}"));
-            } else {
-                runtime_log("tray ready");
-            }
             #[cfg(target_os = "linux")]
             control::serve(app.handle());
             // Re-assert the remembered on-top state now the window exists.
@@ -3082,7 +3082,12 @@ pub fn run() {
         .expect("error while running tauri application")
         .run(|app, event| {
             match event {
-                tauri::RunEvent::Ready => ensure_main_visible(app),
+                tauri::RunEvent::Ready => {
+                    ensure_main_visible(app);
+                    #[cfg(windows)]
+                    boot_windows::dismiss();
+                    schedule_tray(app);
+                }
                 tauri::RunEvent::ExitRequested { api, code, .. } => {
                     runtime_log(&format!("ExitRequested code={code:?}"));
                     // None: last window hid. Some: tray Quit / app.exit(code).
@@ -3090,14 +3095,82 @@ pub fn run() {
                         api.prevent_exit();
                     }
                 }
-                tauri::RunEvent::WindowEvent {
-                    label,
-                    event: tauri::WindowEvent::Destroyed,
-                    ..
-                } => runtime_log(&format!("Destroyed {label}")),
+                tauri::RunEvent::WindowEvent { label, event, .. } => match event {
+                    tauri::WindowEvent::Destroyed => runtime_log(&format!("Destroyed {label}")),
+                    tauri::WindowEvent::Focused(true) if label == "main" => {
+                        ensure_tray(app);
+                    }
+                    _ => {}
+                },
                 _ => {}
             }
         });
+}
+
+fn spawn_index_load(app: tauri::AppHandle, dir: PathBuf) {
+    std::thread::spawn(move || {
+        let started = Instant::now();
+        runtime_log("index scan start");
+        let include = config::include_subfolders();
+        let mut loaded = match NoteStore::open(&dir, include) {
+            Ok(store) => store,
+            Err(e) => {
+                runtime_log(&format!("index scan failed: {e}"));
+                return;
+            }
+        };
+        if loaded.notes().is_empty() {
+            let welcome = dir.join("Welcome to Envy.md");
+            if !welcome.exists() {
+                if std::fs::write(&welcome, WELCOME_NOTE).is_ok() {
+                    loaded.reload();
+                }
+            }
+        }
+        seed_sample_templates_if_needed(&app, &dir);
+        let Some(state) = app.try_state::<AppState>() else {
+            return;
+        };
+        {
+            let mut guard = state.store.lock().unwrap();
+            if guard.notes().is_empty() {
+                *guard = loaded;
+            } else {
+                // A note was created while we scanned; re-read disk so it
+                // is not overwritten by a walk that started earlier.
+                guard.reload();
+            }
+        }
+        state.index_ready.store(true, Ordering::Relaxed);
+        runtime_log(&format!(
+            "index scan done in {}ms ({} notes)",
+            started.elapsed().as_millis(),
+            state.store.lock().unwrap().notes().len()
+        ));
+        let _ = app.emit("index-changed", ());
+    });
+}
+
+fn ensure_tray(app: &tauri::AppHandle) {
+    static STARTED: AtomicBool = AtomicBool::new(false);
+    if STARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    match tray::setup(app) {
+        Ok(()) => runtime_log("tray ready"),
+        Err(e) => runtime_log(&format!("tray setup failed: {e}")),
+    }
+}
+
+fn schedule_tray(app: &tauri::AppHandle) {
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(300));
+        let handle2 = handle.clone();
+        if let Err(e) = handle.run_on_main_thread(move || ensure_tray(&handle2)) {
+            runtime_log(&format!("tray schedule failed: {e}"));
+        }
+    });
 }
 
 fn ensure_main_visible(app: &tauri::AppHandle) {
@@ -3121,7 +3194,7 @@ fn ensure_main_visible(app: &tauri::AppHandle) {
     let _ = w.set_focus();
 }
 
-fn runtime_log(msg: &str) {
+pub(crate) fn runtime_log(msg: &str) {
     let dir = dirs::config_dir()
         .unwrap_or_else(std::env::temp_dir)
         .join("envy");
@@ -3138,7 +3211,6 @@ fn runtime_log(msg: &str) {
     {
         use std::io::Write;
         let _ = f.write_all(line.as_bytes());
-        let _ = f.sync_all();
     }
 }
 
@@ -3156,6 +3228,11 @@ fn install_panic_log() {
             "Box<dyn Any>".into()
         };
         runtime_log(&format!("panic at {loc}: {msg}"));
+        let dir = dirs::config_dir()
+            .unwrap_or_else(std::env::temp_dir)
+            .join("envy")
+            .join("runtime.log");
+        let _ = std::fs::File::options().append(true).open(dir).and_then(|f| f.sync_all());
         eprintln!("panic at {loc}: {msg}");
     }));
 }

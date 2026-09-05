@@ -34,6 +34,11 @@ fn main() {
     linux_font_rendering();
     #[cfg(windows)]
     windows_webview_workarounds();
+    // Native HWND first, then WebView2. Mac maps an NSWindow immediately;
+    // without this, wry's wait_with_pump leaves the user staring at nothing
+    // for the seconds Edge takes to start.
+    #[cfg(windows)]
+    envynote_lib::boot_windows::show_and_prewarm();
     envynote_lib::run()
 }
 
@@ -43,13 +48,27 @@ fn main() {
 /// webview is created.
 #[cfg(windows)]
 fn windows_webview_workarounds() {
-    const VAR: &str = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS";
-    if std::env::var_os(VAR).is_some() {
-        return;
-    }
     // SAFETY: main thread, before other threads exist.
     unsafe {
-        std::env::set_var(VAR, "--disable-features=CalculateNativeWinOcclusion");
+        const ARGS: &str = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS";
+        if std::env::var_os(ARGS).is_none() {
+            // Occlusion throttle: borderless windows get ~5 fps without this.
+            // The rest stops Edge pulling in Widevine, SmartScreen and component
+            // CRXs on every launch — that extra process work is why a WebView2
+            // window felt seconds slower than WebKitGTK on Linux.
+            std::env::set_var(
+                ARGS,
+                "--disable-features=CalculateNativeWinOcclusion,msSmartScreenProtection,InterestFeedContentSuggestions,Translate --disable-background-networking --disable-component-update --disable-sync --no-first-run --disable-default-apps --disable-gpu-shader-disk-cache --disk-cache-size=10485760",
+            );
+        }
+        const DATA: &str = "WEBVIEW2_USER_DATA_FOLDER";
+        if std::env::var_os(DATA).is_none() {
+            if let Some(dir) = dirs::data_local_dir() {
+                let dir = dir.join("envy").join("webview2");
+                let _ = std::fs::create_dir_all(&dir);
+                std::env::set_var(DATA, dir);
+            }
+        }
     }
 }
 

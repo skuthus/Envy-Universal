@@ -3332,6 +3332,7 @@ interface SearchSpec {
 interface SearchPage {
   notes: NoteDto[]
   total: number
+  ready?: boolean
 }
 
 /// The spec the rows currently in `results` were fetched under. Every later
@@ -3399,6 +3400,7 @@ function installFirstPage(page: SearchPage) {
   // Normally one page, but the test hook installs a whole list this way — mark
   // every page the rows actually cover, so nothing is re-fetched.
   for (let p = 0; p * PAGE_SIZE < page.notes.length; p++) loadedPages.add(p)
+  setIndexLoading(page.ready === false)
 }
 
 /// Fetches whatever pages `[from, to)` needs and paints them as they land.
@@ -5785,7 +5787,13 @@ function setFooterNotice(source: string, lines: string[]) {
 let loadingDepth = 0
 function setLoading(active: boolean) {
   loadingDepth = Math.max(0, loadingDepth + (active ? 1 : -1))
-  loadingEl.classList.toggle('hidden', loadingDepth === 0)
+  loadingEl.classList.toggle('hidden', loadingDepth === 0 && !indexLoading)
+}
+
+let indexLoading = false
+function setIndexLoading(loading: boolean) {
+  indexLoading = loading
+  loadingEl.classList.toggle('hidden', loadingDepth === 0 && !indexLoading)
 }
 
 // --- Reference sheets --------------------------------------------------------
@@ -6720,6 +6728,7 @@ async function boot() {
     close: 'hide',
     dragEl: document.getElementById('search-bar'),
   })
+  setIndexLoading(true)
   // The config comes first, before anything reads a setting: every value below
   // is in it, and starting from a default that then has to be corrected on
   // screen is a flicker with nothing to gain.
@@ -6775,18 +6784,20 @@ async function boot() {
   // The same pass a change to config.md takes, so a value can never behave
   // differently at launch than it does when the file changes.
   applyAllSettings({ initial: true })
-  await pushed
-  // The autofill and wiki-link title sources, seeded once. From here they only
-  // refresh when the note set actually changes — see refreshCompletionSources.
-  void refreshCompletionSources()
+  searchInput.focus()
+  initKindleImport(openSettings)
+  // Search and the Index scan must not block first paint. `index-changed`
+  // refills the list when the background walk finishes; this still runs once
+  // now in case that event already fired.
+  void pushed.then(() => {
+    void refreshCompletionSources()
+    void runSearch()
+  })
   // The Mac empties on launch and then hourly: a summon/hide app can run for
   // weeks without a relaunch, so a launch-only check can't keep an "every N
   // days" schedule honest. Cheap on the ticks it isn't due — just a date compare.
   void emptyTrashIfDue()
   window.setInterval(() => void emptyTrashIfDue(), 60 * 60 * 1000)
-  await runSearch()
-  searchInput.focus()
-  initKindleImport(openSettings)
 }
 
 // Exposed for debugging from the webview console. The decoration pass is

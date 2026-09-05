@@ -27,6 +27,9 @@ enum Eye {
 static TRAY: OnceLock<TrayIcon> = OnceLock::new();
 
 pub fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    if TRAY.get().is_some() {
+        return Ok(());
+    }
     let menu = build_menu(app)?;
     let icon = eye_image(current_eye(app)).unwrap_or_else(|| {
         app.default_window_icon()

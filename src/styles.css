@@ -34,11 +34,40 @@ html.windows .linux-only { display: none; }
      text starts in the same column down the whole window and the left and right
      margins match. */
   --envy-inset: calc(12px * var(--envy-zoom-space));
+  /* First-paint colours, matching Envious dark. theme.ts overwrites these
+     once config loads. Without them the window is a transparent HWND on
+     Windows until JS runs, which looks like a hang compared to Linux (where
+     the compositor shows the wallpaper through the same transparency). */
+  --envy-text: rgba(255, 255, 255, 0.847);
+  --envy-background: rgb(29, 30, 31);
+  --envy-file-list-background: rgb(29, 30, 31);
+  --envy-title-bar-background: rgb(38, 38, 38);
+  --envy-blockquote: rgba(255, 255, 255, 0.549);
+  --envy-marker: rgba(255, 255, 255, 0.247);
+  --envy-link: rgb(90, 128, 255);
+  --envy-background-opaque: rgb(29, 30, 31);
+  --envy-title-bar-background-opaque: rgb(38, 38, 38);
+  color-scheme: dark;
   /* Ink for the status bar. Secondary text is pitched for a paragraph at note
      size; at the footer's 11px, and on a theme whose body text is near-white
      on black, the same colour reads as faint. Halfway to body text keeps it
      visibly quieter than the note without disappearing. */
   --envy-chrome-text: color-mix(in srgb, var(--envy-blockquote) 50%, var(--envy-text));
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --envy-text: rgba(0, 0, 0, 0.85);
+    --envy-background: rgb(250, 250, 248);
+    --envy-file-list-background: rgb(250, 250, 248);
+    --envy-title-bar-background: rgb(240, 240, 238);
+    --envy-blockquote: rgba(0, 0, 0, 0.55);
+    --envy-marker: rgba(0, 0, 0, 0.30);
+    --envy-link: rgb(27, 79, 216);
+    --envy-background-opaque: rgb(250, 250, 248);
+    --envy-title-bar-background-opaque: rgb(240, 240, 238);
+    color-scheme: light;
+  }
 }
 
 /* --- Scrollbars ------------------------------------------------------------
@@ -86,8 +115,9 @@ html, body {
      this, any flex-sizing mistake inside silently turns into a scrolled window
      with the search box pushed out of view rather than a visible glitch. */
   overflow: hidden;
-  /* Transparent so the compositor can blur whatever the surfaces don't cover.
-     #app (and the popover/pop-out bodies) carry the themed, alpha'd fill. */
+  /* Linux: transparent so Hyprland blur shows through. Windows: opaque from
+     the first CSS frame — WebView2 is an opaque HWND, and leaving this
+     transparent meant a blank window until theme.ts ran. */
   background: transparent;
   color: var(--envy-text);
   font-family: var(--envy-font-family);
@@ -108,6 +138,14 @@ html, body {
 #app,
 body.popover,
 body.popout-window {
+  background: var(--envy-background);
+}
+
+html.windows,
+html.windows body,
+html.windows #app,
+html.windows body.popover,
+html.windows body.popout-window {
   background: var(--envy-background);
 }
 
