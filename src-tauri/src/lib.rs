@@ -72,11 +72,15 @@ mod omarchy {
         pub theme: Option<String>,
     }
 
+    /// No Omarchy here, but the frontend's `resolveFont` still ranks this
+    /// font above its own built-in stack, so this *is* the Windows default
+    /// whenever `font_family` is unset. Cascadia Mono ships with Windows 11
+    /// and is the ligature-free face — what a plain text editor should show.
     #[tauri::command]
     pub fn omarchy_appearance() -> OmarchyAppearance {
         OmarchyAppearance {
             colors: HashMap::new(),
-            font: "Cascadia Code".into(),
+            font: "Cascadia Mono".into(),
             theme: None,
         }
     }
@@ -1442,8 +1446,9 @@ fn font_families() -> Result<Vec<FontFamily>, String> {
 #[tauri::command]
 fn font_families() -> Result<Vec<FontFamily>, String> {
     const FONTS: &[(&str, bool)] = &[
-        ("Cascadia Code", true),
+        // The default first, then the rest of what Windows itself installs.
         ("Cascadia Mono", true),
+        ("Cascadia Code", true),
         ("Consolas", true),
         ("Courier New", true),
         ("Lucida Console", true),

@@ -23,7 +23,13 @@ import {
 //   yellow/amber  due-soon, and search matches
 
 export const SYSTEM_UI_FONT = "system-ui, 'Segoe UI', sans-serif"
-export const MONO_FONT = "'Cascadia Code', Consolas, ui-monospace, monospace"
+/// Windows ships Cascadia Mono (Windows 11) and Consolas (everything back
+/// to Vista), so the default is one every machine actually has and Mono —
+/// the face without ligatures — is the one that reads as a plain text
+/// editor. Linux keeps Cascadia Code, the family its packages carry.
+export const MONO_FONT = /Windows/i.test(navigator.userAgent)
+  ? "'Cascadia Mono', Consolas, ui-monospace, monospace"
+  : "'Cascadia Code', Consolas, ui-monospace, monospace"
 
 export interface EnvyTheme {
   /// Font is part of the theme on the Mac (`Theme.fontName` / `fontSize`) and

@@ -148,6 +148,11 @@ html.windows body.popover,
 html.windows body.popout-window {
   background: var(--envy-background);
 }
+/* Same face theme.ts settles on, so the first frame doesn't reflow from
+   the generic monospace fallback once config loads. */
+html.windows {
+  --envy-mono-family: 'Cascadia Mono', Consolas, ui-monospace, monospace;
+}
 
 /* --- App shell -----------------------------------------------------------
    One search box on top, list and editor side by side beneath it. The Mac
