@@ -166,12 +166,25 @@ fn main() {
 
     // Sizes Windows actually asks for. 16/20/24/32 are the ones the tuning
     // exists for — Explorer, the taskbar, and Alt-Tab all land in that range.
-    const ICO_SIZES: [u32; 8] = [16, 20, 24, 32, 48, 64, 128, 256];
+    //
+    // Largest first: Tauri's codegen (`CachedIcon::new_ico`) embeds
+    // `entries()[0]` as the runtime window icon. A 16px lead image gets
+    // stretched across the taskbar and looks like mush.
+    //
+    // Small sizes as BMP, 256 as PNG: `encode()` picks PNG whenever the
+    // rounded corners have intermediate alpha, and Windows' taskbar loader
+    // is unreliable with PNG-in-ICO below 256.
+    const ICO_SIZES: [u32; 8] = [256, 128, 64, 48, 32, 24, 20, 16];
     let mut ico = ico::IconDir::new(ico::ResourceType::Icon);
     for size in ICO_SIZES {
         let pm = render(size);
         let image = ico::IconImage::from_rgba_data(size, size, pm.data().to_vec());
-        ico.add_entry(ico::IconDirEntry::encode(&image).expect("encode ico entry"));
+        let entry = if size >= 256 {
+            ico::IconDirEntry::encode_as_png(&image)
+        } else {
+            ico::IconDirEntry::encode_as_bmp(&image)
+        };
+        ico.add_entry(entry.expect("encode ico entry"));
     }
     let ico_path = out.join("icon.ico");
     let file = std::fs::File::create(&ico_path).expect("create icon.ico");

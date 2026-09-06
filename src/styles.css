@@ -280,14 +280,17 @@ html.windows .window-controls { display: flex; }
 #inbox-badge {
   flex: none;
   display: inline-flex;
-  align-items: baseline;
-  /* No leading padding: the bracket starts on the same inset as the sort
-     header and the rows beneath it. */
-  padding: 0 2px 0 0;
+  align-items: center;
+  /* Same vertical padding as #search so the count and the placeholder share
+     a box and sit on one optical centre. WebView2's button metrics otherwise
+     leave a 12px leftover riding high next to the scaled field. */
+  padding: 4px 2px 4px 0;
   font: inherit;
-  font-size: 12px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  line-height: 1;
+  -webkit-appearance: none;
+  appearance: none;
   border: none;
   border-radius: 0;
   background: none;
@@ -328,6 +331,7 @@ html.windows .window-controls { display: flex; }
    preview/date 11, search 15) scaled by the Interface Text Size setting, which
    left them all different from each other and from the editor. */
 #search-bar,
+#inbox-badge,
 #list-pane,
 #note-title-bar,
 #footer,
@@ -593,7 +597,7 @@ body.fade-focus #editor-pane:focus-within {
    is the one that truncates — never the other way around. */
 .row-main {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
   min-width: 0;
 }
@@ -659,13 +663,17 @@ body.bold-file-list .row-date { font-weight: 700; }
 /* The folder a note is filed in, when that folder has been given a colour. Same
    size and slot as the fleeting dot, because a note only ever shows one: an
    inbox note keeps amber, since "unfiled" outranks a folder category. */
-.folder-dot {
+.folder-dot,
+.inbox-dot {
   display: inline-block;
   width: 7px;
   height: 7px;
   margin-right: 6px;
   border-radius: 50%;
+  flex: none;
+  line-height: 1;
   vertical-align: middle;
+  align-self: center;
 }
 /* A folder with no colour still reserves the dot, so catalog names line up. */
 .folder-dot.empty {
@@ -680,11 +688,8 @@ body.bold-file-list .row-date { font-weight: 700; }
 .row-folder-dot {
   cursor: pointer;
 }
-/* Flex centring lands a marker on the line-box centre. An earlier build nudged
-   the round dots ~1px down toward a capital-led title's cap-height centre, a
-   correction tuned to the Envious font's ascent/descent. With the Omarchy
-   monospace fonts the line-box centre already sits on the cap centre, so the
-   nudge left the dots visibly low; measured on screen, no offset is right. */
+/* Same 7px disc and alignment as `.inbox-dot` — trailing vs leading must not
+   change the vertical slot. */
 .row-folder-dot,
 .inbox-dot {
   transform: none;
@@ -776,17 +781,9 @@ body.bold-file-list .row-date { font-weight: 700; }
   color: var(--envy-blockquote);
 }
 .inbox-dot {
-  display: inline-block;
-  /* The same 7px as the folder dot: the two sit on the same rows, leading and
-     trailing, and a size apart read as a mistake rather than a distinction. */
-  width: 7px;
-  height: 7px;
-  margin-right: 6px;
-  border-radius: 50%;
   /* Same accent as the inbox count badge, so the fleeting marker and its
-     counter read as one thing. */
+     counter read as one thing. Size/alignment live with `.folder-dot`. */
   background: var(--envy-flag);
-  vertical-align: middle;
 }
 .ai-badge { margin-left: 6px; color: var(--envy-blockquote); }
 .pin-mark { margin-right: 5px; font-size: 10px; }
@@ -802,6 +799,7 @@ body.bold-file-list .row-date { font-weight: 700; }
 .row .ai-badge,
 .row .pin-mark,
 .row .inbox-dot,
+.row .folder-dot,
 .row .trash-mark { line-height: 1; }
 
 #settings-panel .setting-note {

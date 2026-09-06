@@ -249,9 +249,16 @@ fn current_eye(app: &AppHandle) -> Eye {
 }
 
 fn eye_image(eye: Eye) -> Option<Image<'static>> {
-    let px = render_eye(eye, 32, tray_colour())?;
+    let px = render_eye(eye, tray_pixel_size(), tray_colour())?;
     let png = px.encode_png().ok()?;
     Image::from_bytes(&png).ok().map(|i| i.to_owned())
+}
+
+/// 16 logical pixels at 2× so the notify-icon stays sharp on high-DPI
+/// taskbars. 32 at 96 DPI, 48 at 150%, 64 at 200%.
+fn tray_pixel_size() -> u32 {
+    let dpi = unsafe { windows::Win32::UI::HiDpi::GetDpiForSystem() }.max(96);
+    (32 * dpi / 96).max(32)
 }
 
 /// Light glyph on a dark taskbar (Windows 11 default), dark glyph otherwise.
