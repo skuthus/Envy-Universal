@@ -2048,7 +2048,7 @@ pub(crate) async fn run_update_check(app: tauri::AppHandle, manual: bool) {
 }
 
 #[cfg(not(windows))]
-const RELEASES_API: &str = "https://api.github.com/repos/skuthus/Envy-Linux/releases/latest";
+const RELEASES_API: &str = "https://api.github.com/repos/skuthus/Envy-Universal/releases/latest";
 
 /// The newest release tag on GitHub, without its `v`. `releases/latest`
 /// skips drafts, pre-releases and the `repo` release that carries the pacman

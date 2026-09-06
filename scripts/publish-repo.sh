@@ -4,7 +4,7 @@
 #
 #   [envynote]
 #   SigLevel = Optional TrustAll
-#   Server = https://github.com/skuthus/Envy-Linux/releases/download/repo
+#   Server = https://github.com/skuthus/Envy-Universal/releases/download/repo
 #
 # to /etc/pacman.conf once, install with `pacman -Sy envynote`, and
 # `omarchy update` keeps Envy current from then on — the AUR experience
@@ -60,7 +60,7 @@ if ! gh release view "$TAG" >/dev/null 2>&1; then
 
     [$REPO_NAME]
     SigLevel = Optional TrustAll
-    Server = https://github.com/skuthus/Envy-Linux/releases/download/$TAG
+    Server = https://github.com/skuthus/Envy-Universal/releases/download/$TAG
 
 then \`sudo pacman -Sy $REPO_NAME\`; \`omarchy update\` (or \`pacman -Syu\` elsewhere) picks up new versions. The versioned releases carry the same package; this one only ever holds the newest."
 fi

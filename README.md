@@ -1,32 +1,93 @@
-# Envy for Windows
+# Envy
 
-A Windows port of [Envy-Linux](https://github.com/skuthus/Envy-Linux) — a flat-file, frictionless note-taking application. One search box, instant results, and notes stored as plain `.md` files.
+A flat-file, frictionless note-taking application. One search box, instant
+results, and notes stored as plain `.md` files in a folder you choose, so the
+notes outlive the app.
 
-This tree is a greenfield port of the Linux app (Tauri v2 + Rust `envy-core` + CodeMirror 6), not a merge with the older Envy-Windows 1.7-era codebase. Omarchy, Hyprland, and WebKitGTK integrations are gated out; the shell uses WebView2, a Win32 tray icon, and in-process global shortcuts.
+One codebase, two platforms: **Linux** (WebKitGTK) and **Windows** (WebView2),
+sharing the same Rust `envy-core`, the same CodeMirror 6 frontend and the same
+Tauri v2 shell. Platform code is gated, not forked — see
+[Platform boundaries](#platform-boundaries).
 
-Open source under the MIT license. The macOS original is at [envynote.app](https://envynote.app).
+Open source under the MIT license. The macOS original is a separate Swift app:
+[skuthus/Envy](https://github.com/skuthus/Envy), [envynote.app](https://envynote.app).
 
-## Running it
+## Installing a release
 
-Toolchain: Rust stable (`x86_64-pc-windows-msvc`), Node LTS, and MSVC C++ build tools + Windows SDK. WebView2 is bundled on Windows 11.
+**Arch / Omarchy.** Envy ships from its own pacman repository (the AUR closed
+registrations when 1.0.0 shipped). Add to `/etc/pacman.conf` once:
 
 ```
+[envynote]
+SigLevel = Optional TrustAll
+Server = https://github.com/skuthus/Envy-Universal/releases/download/repo
+```
+
+then `sudo pacman -Sy envynote`. Updates arrive with `omarchy update` (or a
+plain `pacman -Syu` on other Arch systems; Omarchy's hook blocks that form).
+Turn on Settings → System → "Bind Ctrl+Alt+Return in Hyprland", or add
+`pcall(dofile, "/usr/share/envy/hyprland-envy.lua")` to
+`~/.config/hypr/bindings.lua` yourself. Prefer building it? `cd linux &&
+makepkg -si` from a clone.
+
+> Installs made before the repository was renamed point at
+> `.../skuthus/Envy-Linux/releases/download/repo`. GitHub redirects that
+> permanently, so they keep working and need no edit.
+
+**Other Linux.** Run the AppImage from the GitHub release.
+
+**Windows.** Run the NSIS installer from the GitHub release. WebView2 is
+already present on Windows 11 and is fetched by the installer otherwise.
+
+## Building it
+
+Both platforms need Rust stable and Node LTS.
+
+```bash
 npm install
-dev.cmd                 # hot-reloading dev build
-build.cmd               # release binary + NSIS installer
+
+# Linux — also needs: webkit2gtk-4.1 gtk3 librsvg openssl
+./dev.sh                    # hot-reloading dev build
+./build.sh                  # pre-ship gate, then binary + .deb + AppImage
+./linux/install-desktop.sh  # ~/.local/share/applications/envy.desktop
 ```
 
-Notes live in `%USERPROFILE%\Documents\Envy` by default, created on first launch with a welcome note. Settings → Change Location… points it at another folder. The chosen path is the `vault` key of `%APPDATA%\envy\config.md`.
+```
+:: Windows — also needs MSVC C++ build tools + the Windows SDK
+dev.cmd                     :: hot-reloading dev build
+build.cmd                   :: release binary + NSIS installer
+```
 
-**Summon.** `Ctrl+Alt+Enter` shows or hides Envy from any app (Tauri global shortcut). The tray eye does the same on left click; right click opens the app menu.
+Notes live in `~/Documents/Envy` (Linux) or `%USERPROFILE%\Documents\Envy`
+(Windows) by default, created on first launch with a welcome note. Settings →
+Change Location… points it elsewhere; the chosen path is the `vault` key in the
+config file below.
+
+**Summon.** `Ctrl+Alt+Enter` shows or hides Envy from any app. The tray/bar eye
+does the same on left click; right click opens the app menu.
+
+## Checking it
+
+```bash
+./scripts/check.sh              # tests, tsc, build, config invariants — no display
+./scripts/gui-smoke.sh          # Linux: drives the real window under Hyprland
+.\scripts\gui-smoke.ps1         # Windows: the same run, driven through Win32
+./scripts/ship-check.sh         # the full pre-release gate
+```
+
+`cargo test` reports more tests on Linux than on Windows. That is correct, not a
+misconfiguration: the symlink, pacman-update and Hyprland/Omarchy/tray tests are
+`cfg`-gated and do not exist on Windows.
 
 ## Configuration
 
-Same file shape as Linux: markdown with one ` ```toml ` fence. Missing keys mean defaults.
+The same file shape on both: markdown with one ` ```toml ` fence, and missing
+keys mean defaults. Theme files sit beside it in `themes/`.
 
-`%APPDATA%\envy\config.md` holds every setting. Theme files live in `%APPDATA%\envy\themes\`.
-
-From the command line:
+| | Config | Themes |
+|---|---|---|
+| Linux | `~/.config/envy/config.md` | `~/.config/envy/themes/` |
+| Windows | `%APPDATA%\envy\config.md` | `%APPDATA%\envy\themes\` |
 
 ```
 envynote config check
@@ -34,13 +95,36 @@ envynote config path
 envynote theme list
 ```
 
+**Appearance.** Both platforms default to the Envious dark face. On a machine
+running Omarchy, Envy follows the current Omarchy theme
+(`~/.local/state/omarchy/current/theme/colors.toml`) and its monospace font
+instead — `omarchy theme set` or `omarchy font set` retints a running window.
+Settings → Appearance pins Envious light/dark or a custom font. Where no
+Omarchy font is available the default face is JetBrains Mono on Linux and
+Cascadia Mono on Windows.
+
 ## Structure
 
 - `crates/envy-core` — the note model and store. No UI, no Tauri. `cargo test -p envy-core`.
 - `src-tauri` — the Tauri v2 shell: windowing, tray, file dialogs, updater.
-- `src` — the TypeScript frontend; live markdown styling is CodeMirror 6 decorations over a plain text buffer.
+- `src` — the TypeScript frontend; live markdown styling is CodeMirror 6
+  decorations over a plain text buffer.
 
-Linux-only modules (`hyprland.rs`, `omarchy.rs`, `control.rs`, `kindle_mtp.rs`, `tray_linux.rs`) stay in the tree behind `cfg(target_os = "linux")` and are not compiled here.
+### Platform boundaries
+
+Linux-only modules — `hyprland.rs`, `omarchy.rs`, `control.rs`, `kindle_mtp.rs`,
+`tray_linux.rs` — sit behind `cfg(target_os = "linux")`. Windows-only ones —
+`tray_windows.rs`, `boot_windows.rs`, `src/window-chrome.ts` — behind `cfg(windows)`
+and a runtime check. Frontend platform styling hangs off `html.windows`.
+
+Build configuration splits the same way: `src-tauri/tauri.conf.json` is the Linux
+configuration, and `src-tauri/tauri.windows.conf.json` overlays it. The base file
+holds the Linux values deliberately, so a build that somehow misses the overlay
+falls back to the identity that has users rather than one that would strand them.
+
+The two app identifiers are **not** interchangeable and must not be unified:
+`app.envynote.linux` and `app.envynote.windows` key each platform's WebView
+store, which holds pinned notes, the tray pin and the split fractions.
 
 ## License
 

@@ -19,7 +19,7 @@ pkgver=${_tauriver//-/}
 pkgrel=1
 pkgdesc="Flat-file, frictionless note-taking that follows the Omarchy theme"
 arch=('x86_64')
-url="https://github.com/skuthus/Envy-Linux"
+url="https://github.com/skuthus/Envy-Universal"
 license=('MIT')
 depends=('webkit2gtk-4.1' 'gtk3')
 # Envy runs on any Wayland or X11 desktop; Hyprland unlocks the summon bind,

@@ -1,9 +1,14 @@
-# Releasing Envy for Linux
+# Releasing Envy
 
-The source is public (MIT). A release is a git tag, a GitHub release with
-the assets, and a pacman repository that installs from them. (The AUR was
-the plan, but it had closed new registrations when 1.0.0 shipped; the
-PKGBUILD is ready for it whenever that changes.)
+The source is public (MIT). A release is one git tag and one GitHub release
+carrying both platforms' assets, plus a pacman repository that installs the
+Linux ones. (The AUR was the plan, but it had closed new registrations when
+1.0.0 shipped; the PKGBUILD is ready for it whenever that changes.)
+
+Windows builds are verified by hand before a release is cut: on a real Windows
+machine, `bash scripts/check.sh` (Git Bash, and it needs `jq` on PATH) followed
+by `scripts\gui-smoke.ps1`. There is no hosted CI, so an unverified Windows
+build is an unreleased one.
 
 ## What a release is
 
@@ -19,7 +24,7 @@ PKGBUILD is ready for it whenever that changes.)
 - **AppImage**, for people not on Arch.
 - **The `repo` release**: a pacman repository holding the newest package
   and its database (`envynote.db`, `envynote.files`), which is what
-  `Server = https://github.com/skuthus/Envy-Linux/releases/download/repo`
+  `Server = https://github.com/skuthus/Envy-Universal/releases/download/repo`
   in a user's `pacman.conf` reads. `scripts/publish-repo.sh` refreshes it
   from the package `release.sh` built; only the current version is kept.
 
