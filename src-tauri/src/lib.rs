@@ -2316,6 +2316,9 @@ pub(crate) fn remember_pinned_geometry(app: &tauri::AppHandle) {
 fn pinned_geometry_now(app: &tauri::AppHandle) -> Option<hyprland::Geometry> {
     #[cfg(target_os = "linux")]
     {
+        // Hyprland answers this from the window title, so the handle is only
+        // the Windows arm's business — same shape as `control_send`.
+        let _ = app;
         hyprland::geometry(PINNED_TITLE)
     }
     #[cfg(windows)]
