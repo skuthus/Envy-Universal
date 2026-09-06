@@ -16,15 +16,34 @@ export const IS_WINDOWS = /Windows/i.test(navigator.userAgent)
 /// cannot drift apart.
 export const REVEAL_LABEL = IS_WINDOWS ? 'Reveal in Explorer' : 'Show in Folder'
 
+/// The title-bar glyphs, as path data on a 10×10 viewBox rather than markup.
+/// They were SVG strings assigned through `innerHTML`, which check.sh's
+/// invariant stops on sight — rightly, even though these four are static
+/// literals with nothing interpolated into them: the check is a tripwire, and
+/// a file excused from it is excused forever, including for whatever is added
+/// to it next. Built as real nodes instead, so nothing in this file turns a
+/// string into markup. The maximize square is a closed path, not a `<rect>`,
+/// so one builder covers all four; `stroke-linejoin: round` in the stylesheet
+/// renders it identically either way.
 const ICONS = {
-  minimize:
-    '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 5.5h6"/></svg>',
-  maximize:
-    '<svg viewBox="0 0 10 10" aria-hidden="true"><rect x="2" y="2" width="6" height="6"/></svg>',
-  restore:
-    '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M3 4h5v5H3z"/><path d="M2 6V2h4"/></svg>',
-  close:
-    '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 2.5l5 5M7.5 2.5l-5 5"/></svg>',
+  minimize: ['M2 5.5h6'],
+  maximize: ['M2 2h6v6H2z'],
+  restore: ['M3 4h5v5H3z', 'M2 6V2h4'],
+  close: ['M2.5 2.5l5 5M7.5 2.5l-5 5'],
+}
+
+const SVG_NS = 'http://www.w3.org/2000/svg'
+
+function icon(name: keyof typeof ICONS): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, 'svg')
+  svg.setAttribute('viewBox', '0 0 10 10')
+  svg.setAttribute('aria-hidden', 'true')
+  for (const d of ICONS[name]) {
+    const path = document.createElementNS(SVG_NS, 'path')
+    path.setAttribute('d', d)
+    svg.append(path)
+  }
+  return svg
 }
 
 export function installWindowChrome(opts?: {
@@ -47,7 +66,7 @@ export function installWindowChrome(opts?: {
   const closeBtn = root.querySelector<HTMLButtonElement>('[data-win="close"]')
 
   if (minBtn) {
-    minBtn.innerHTML = ICONS.minimize
+    minBtn.replaceChildren(icon('minimize'))
     minBtn.onclick = () => void win.minimize().catch((err) => console.error(err))
   }
   if (maxBtn) {
@@ -56,7 +75,7 @@ export function installWindowChrome(opts?: {
     } else {
       const paint = async () => {
         const on = await win.isMaximized().catch(() => false)
-        maxBtn.innerHTML = on ? ICONS.restore : ICONS.maximize
+        maxBtn.replaceChildren(icon(on ? 'restore' : 'maximize'))
         maxBtn.title = on ? 'Restore' : 'Maximize'
         maxBtn.setAttribute('aria-label', maxBtn.title)
       }
@@ -66,7 +85,7 @@ export function installWindowChrome(opts?: {
     }
   }
   if (closeBtn) {
-    closeBtn.innerHTML = ICONS.close
+    closeBtn.replaceChildren(icon('close'))
     closeBtn.title = closeMode === 'hide' ? 'Hide Envy' : 'Close'
     closeBtn.setAttribute('aria-label', closeBtn.title)
     closeBtn.onclick = () => {
