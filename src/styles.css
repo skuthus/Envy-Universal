@@ -555,7 +555,16 @@ body.fade-focus #editor-pane:focus-within {
 #list-sizer > .row { position: absolute; left: 0; right: 0; }
 
 .row {
-  align-items: baseline;
+  /* Centre, not baseline. Title, date and preview all share `--envy-font-size`
+     and never wrap, so for an ordinary row the two are the same alignment. They
+     part company on a row whose title *starts* with a marker: an empty
+     inline-block has no line box, so its baseline is its bottom margin edge,
+     and a flex container takes its baseline from its first item. A leading
+     inbox dot therefore handed `.row-main` a baseline 7px from its top, and the
+     grid pushed the whole title down ~4px to sit it on the date's baseline —
+     fleeting rows rendered lower than their neighbours, and their dot fell off
+     the column the trailing folder dots keep. Centring ignores the marker. */
+  align-items: center;
   /* One measured height for every row (set by the list from a real row), so a
      row with an emoji or CJK title cannot be a pixel taller than the rest and
      throw the virtualised positions off. */
