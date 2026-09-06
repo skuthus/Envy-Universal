@@ -1,0 +1,36 @@
+{
+  "identifier": "app.envynote.windows",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Envy",
+        "width": 800,
+        "height": 600,
+        "minWidth": 480,
+        "minHeight": 360,
+        "transparent": false,
+        "decorations": false,
+        "shadow": true,
+        "backgroundColor": "#1d1e1f"
+      }
+    ]
+  },
+  "bundle": {
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
+    }
+  }
+}

@@ -2,6 +2,9 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      if (/Windows/i.test(navigator.userAgent)) document.documentElement.classList.add('windows')
+    </script>
     <link rel="stylesheet" href="/src/styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Envy</title>
@@ -25,6 +28,11 @@
             autocomplete="off"
             spellcheck="false"
           />
+        </div>
+        <div class="window-controls" role="group" aria-label="Window">
+          <button type="button" data-win="minimize" title="Minimize" aria-label="Minimize"></button>
+          <button type="button" data-win="maximize" title="Maximize" aria-label="Maximize"></button>
+          <button type="button" data-win="close" title="Hide Envy" aria-label="Hide Envy"></button>
         </div>
       </div>
       <div id="panes">
@@ -493,23 +501,23 @@
               <input type="checkbox" id="setting-restore-focus" />
               Keep focus where it was when summoned
             </label>
-            <label>
+            <label class="linux-only">
               <input type="checkbox" id="setting-tiled" />
               Envy is tiled
             </label>
-            <label>
+            <label class="linux-only">
               <input type="checkbox" id="setting-popout-tiled" />
               Pop-out notes are tiled
             </label>
-            <p class="setting-note">
+            <p class="setting-note linux-only">
               Off, the window floats. Both apply straight away to the windows
               that are open.
             </p>
-            <label>
+            <label class="linux-only">
               <input type="checkbox" id="setting-hyprland-bind" />
               Bind Ctrl+Alt+Return in Hyprland
             </label>
-            <p class="setting-note">
+            <p class="setting-note linux-only">
               Adds one line to <code>~/.config/hypr/bindings.lua</code> so
               <strong>Ctrl+Alt+Return</strong> shows or hides Envy from any app,
               <strong>Ctrl+Alt+C</strong> centers it, and the window opens
@@ -522,8 +530,7 @@
             <h3>Updates</h3>
             <p class="setting-note">
               Envy never checks on its own. Check Now looks up the latest
-              release on GitHub and, if it is newer, opens a terminal with the
-              update command.
+              release and, if it is newer, offers to install it.
             </p>
             <div class="setting-row update-check-row">
               <span id="setting-update-last-checked" class="setting-note"

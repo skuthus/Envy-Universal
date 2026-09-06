@@ -4,6 +4,8 @@
 
 * { box-sizing: border-box; }
 
+html.windows .linux-only { display: none; }
+
 :root {
   /* Chrome scale and row padding, driven from Settings. Separate from the
      editor's own zoom: wanting bigger UI is not the same as wanting bigger
@@ -32,11 +34,40 @@
      text starts in the same column down the whole window and the left and right
      margins match. */
   --envy-inset: calc(12px * var(--envy-zoom-space));
+  /* First-paint colours, matching Envious dark. theme.ts overwrites these
+     once config loads. Without them the window is a transparent HWND on
+     Windows until JS runs, which looks like a hang compared to Linux (where
+     the compositor shows the wallpaper through the same transparency). */
+  --envy-text: rgba(255, 255, 255, 0.847);
+  --envy-background: rgb(29, 30, 31);
+  --envy-file-list-background: rgb(29, 30, 31);
+  --envy-title-bar-background: rgb(38, 38, 38);
+  --envy-blockquote: rgba(255, 255, 255, 0.549);
+  --envy-marker: rgba(255, 255, 255, 0.247);
+  --envy-link: rgb(90, 128, 255);
+  --envy-background-opaque: rgb(29, 30, 31);
+  --envy-title-bar-background-opaque: rgb(38, 38, 38);
+  color-scheme: dark;
   /* Ink for the status bar. Secondary text is pitched for a paragraph at note
      size; at the footer's 11px, and on a theme whose body text is near-white
      on black, the same colour reads as faint. Halfway to body text keeps it
      visibly quieter than the note without disappearing. */
   --envy-chrome-text: color-mix(in srgb, var(--envy-blockquote) 50%, var(--envy-text));
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --envy-text: rgba(0, 0, 0, 0.85);
+    --envy-background: rgb(250, 250, 248);
+    --envy-file-list-background: rgb(250, 250, 248);
+    --envy-title-bar-background: rgb(240, 240, 238);
+    --envy-blockquote: rgba(0, 0, 0, 0.55);
+    --envy-marker: rgba(0, 0, 0, 0.30);
+    --envy-link: rgb(27, 79, 216);
+    --envy-background-opaque: rgb(250, 250, 248);
+    --envy-title-bar-background-opaque: rgb(240, 240, 238);
+    color-scheme: light;
+  }
 }
 
 /* --- Scrollbars ------------------------------------------------------------
@@ -84,8 +115,9 @@ html, body {
      this, any flex-sizing mistake inside silently turns into a scrolled window
      with the search box pushed out of view rather than a visible glitch. */
   overflow: hidden;
-  /* Transparent so the compositor can blur whatever the surfaces don't cover.
-     #app (and the popover/pop-out bodies) carry the themed, alpha'd fill. */
+  /* Linux: transparent so Hyprland blur shows through. Windows: opaque from
+     the first CSS frame — WebView2 is an opaque HWND, and leaving this
+     transparent meant a blank window until theme.ts ran. */
   background: transparent;
   color: var(--envy-text);
   font-family: var(--envy-font-family);
@@ -107,6 +139,19 @@ html, body {
 body.popover,
 body.popout-window {
   background: var(--envy-background);
+}
+
+html.windows,
+html.windows body,
+html.windows #app,
+html.windows body.popover,
+html.windows body.popout-window {
+  background: var(--envy-background);
+}
+/* Same face theme.ts settles on, so the first frame doesn't reflow from
+   the generic monospace fallback once config loads. */
+html.windows {
+  --envy-mono-family: 'Cascadia Mono', Consolas, ui-monospace, monospace;
 }
 
 /* --- App shell -----------------------------------------------------------
@@ -133,8 +178,52 @@ body.popout-window {
 #search-bar input,
 #search-bar button,
 #inbox-badge,
-#search-wrap {
+#search-wrap,
+.window-controls {
   -webkit-app-region: no-drag;
+}
+
+/* Windows window buttons live in the existing search/title chrome rather than
+   a second OS title strip. Hidden on Linux. */
+.window-controls {
+  display: none;
+  flex: none;
+  align-self: stretch;
+  align-items: stretch;
+  /* The left margin, on top of the bar's own gap, is the only chrome left to
+     grab in the main window — wide enough to aim at without crowding the
+     field or pushing the buttons off the edge. */
+  margin: calc(-6px * var(--envy-zoom-space)) calc(-1 * var(--envy-inset)) calc(-2px * var(--envy-zoom-space)) 16px;
+}
+html.windows .window-controls { display: flex; }
+.window-controls button {
+  width: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--envy-chrome-text);
+  cursor: default;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.window-controls button svg {
+  width: 10px;
+  height: 10px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.15;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.window-controls button:hover {
+  color: var(--envy-text);
+  background: color-mix(in srgb, var(--envy-marker) 22%, transparent);
+}
+.window-controls button[data-win="close"]:hover {
+  color: #fff;
+  background: var(--envy-due-overdue);
 }
 #search-wrap { position: relative; flex: 1; display: flex; }
 /* Behind the field, aligned to the same text metrics, showing the whole
@@ -194,14 +283,17 @@ body.popout-window {
 #inbox-badge {
   flex: none;
   display: inline-flex;
-  align-items: baseline;
-  /* No leading padding: the bracket starts on the same inset as the sort
-     header and the rows beneath it. */
-  padding: 0 2px 0 0;
+  align-items: center;
+  /* Same vertical padding as #search so the count and the placeholder share
+     a box and sit on one optical centre. WebView2's button metrics otherwise
+     leave a 12px leftover riding high next to the scaled field. */
+  padding: 4px 2px 4px 0;
   font: inherit;
-  font-size: 12px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  line-height: 1;
+  -webkit-appearance: none;
+  appearance: none;
   border: none;
   border-radius: 0;
   background: none;
@@ -242,6 +334,7 @@ body.popout-window {
    preview/date 11, search 15) scaled by the Interface Text Size setting, which
    left them all different from each other and from the editor. */
 #search-bar,
+#inbox-badge,
 #list-pane,
 #note-title-bar,
 #footer,
@@ -462,7 +555,16 @@ body.fade-focus #editor-pane:focus-within {
 #list-sizer > .row { position: absolute; left: 0; right: 0; }
 
 .row {
-  align-items: baseline;
+  /* Centre, not baseline. Title, date and preview all share `--envy-font-size`
+     and never wrap, so for an ordinary row the two are the same alignment. They
+     part company on a row whose title *starts* with a marker: an empty
+     inline-block has no line box, so its baseline is its bottom margin edge,
+     and a flex container takes its baseline from its first item. A leading
+     inbox dot therefore handed `.row-main` a baseline 7px from its top, and the
+     grid pushed the whole title down ~4px to sit it on the date's baseline —
+     fleeting rows rendered lower than their neighbours, and their dot fell off
+     the column the trailing folder dots keep. Centring ignores the marker. */
+  align-items: center;
   /* One measured height for every row (set by the list from a real row), so a
      row with an emoji or CJK title cannot be a pixel taller than the rest and
      throw the virtualised positions off. */
@@ -507,7 +609,7 @@ body.fade-focus #editor-pane:focus-within {
    is the one that truncates — never the other way around. */
 .row-main {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
   min-width: 0;
 }
@@ -573,13 +675,17 @@ body.bold-file-list .row-date { font-weight: 700; }
 /* The folder a note is filed in, when that folder has been given a colour. Same
    size and slot as the fleeting dot, because a note only ever shows one: an
    inbox note keeps amber, since "unfiled" outranks a folder category. */
-.folder-dot {
+.folder-dot,
+.inbox-dot {
   display: inline-block;
   width: 7px;
   height: 7px;
   margin-right: 6px;
   border-radius: 50%;
+  flex: none;
+  line-height: 1;
   vertical-align: middle;
+  align-self: center;
 }
 /* A folder with no colour still reserves the dot, so catalog names line up. */
 .folder-dot.empty {
@@ -594,11 +700,8 @@ body.bold-file-list .row-date { font-weight: 700; }
 .row-folder-dot {
   cursor: pointer;
 }
-/* Flex centring lands a marker on the line-box centre. An earlier build nudged
-   the round dots ~1px down toward a capital-led title's cap-height centre, a
-   correction tuned to the Envious font's ascent/descent. With the Omarchy
-   monospace fonts the line-box centre already sits on the cap centre, so the
-   nudge left the dots visibly low; measured on screen, no offset is right. */
+/* Same 7px disc and alignment as `.inbox-dot` — trailing vs leading must not
+   change the vertical slot. */
 .row-folder-dot,
 .inbox-dot {
   transform: none;
@@ -690,17 +793,9 @@ body.bold-file-list .row-date { font-weight: 700; }
   color: var(--envy-blockquote);
 }
 .inbox-dot {
-  display: inline-block;
-  /* The same 7px as the folder dot: the two sit on the same rows, leading and
-     trailing, and a size apart read as a mistake rather than a distinction. */
-  width: 7px;
-  height: 7px;
-  margin-right: 6px;
-  border-radius: 50%;
   /* Same accent as the inbox count badge, so the fleeting marker and its
-     counter read as one thing. */
+     counter read as one thing. Size/alignment live with `.folder-dot`. */
   background: var(--envy-flag);
-  vertical-align: middle;
 }
 .ai-badge { margin-left: 6px; color: var(--envy-blockquote); }
 .pin-mark { margin-right: 5px; font-size: 10px; }
@@ -716,6 +811,7 @@ body.bold-file-list .row-date { font-weight: 700; }
 .row .ai-badge,
 .row .pin-mark,
 .row .inbox-dot,
+.row .folder-dot,
 .row .trash-mark { line-height: 1; }
 
 #settings-panel .setting-note {
@@ -918,6 +1014,9 @@ body.popover {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+#pinned-title-bar .window-controls {
+  margin: -6px -10px -6px 4px;
+}
 #pinned-title-bar button {
   -webkit-app-region: no-drag;
   font: inherit;
@@ -963,23 +1062,35 @@ body.popout-window {
    main window's title bar. */
 /* The same bar the main window's title sits in: the same face size, the same
    chrome background, the same rule beneath it. */
-#popout-title {
+#popout-title-bar {
+  display: flex;
+  align-items: stretch;
   flex: none;
+  background: var(--envy-title-bar-background);
+  border-bottom: 1px solid color-mix(in srgb, var(--envy-marker) 30%, transparent);
+  -webkit-app-region: drag;
+}
+#popout-title {
+  flex: 1;
+  min-width: 0;
   font: inherit;
   font-weight: 600;
   font-size: var(--envy-font-size);
   margin: 0;
   padding: calc(3px * var(--envy-zoom-space)) var(--envy-inset);
   border: none;
-  border-bottom: 1px solid color-mix(in srgb, var(--envy-marker) 30%, transparent);
   border-radius: 0;
-  background: var(--envy-title-bar-background);
+  background: transparent;
   color: var(--envy-text);
   text-overflow: ellipsis;
+  -webkit-app-region: no-drag;
 }
 #popout-title:focus {
   outline: none;
-  border-bottom-color: var(--envy-link);
+  box-shadow: inset 0 -1px 0 var(--envy-link);
+}
+#popout-title-bar .window-controls {
+  margin: 0;
 }
 
 /* --- Footer and interlinks --------------------------------------------------
@@ -998,8 +1109,13 @@ body.popout-window {
   gap: 0.75em;
   flex: none;
   padding: calc(2px * var(--envy-zoom-space) - 1px) var(--envy-inset);
-  /* A touch smaller than the note/list text — the status bar is chrome. */
-  font-size: calc(11px * var(--envy-zoom-space));
+  /* A touch smaller than the note/list text — the status bar is chrome: 10 to
+     their 12, kept as a ratio so Ctrl+= / Ctrl+- move the bar with the text
+     they annotate. It must not go back to `Npx * var(--envy-zoom-space)`:
+     that variable is spacing, clamped to [1, 1.6], so the footer stopped
+     growing at 160% and, zoomed out, stayed put while the note text shrank
+     past it — at the 0.6 floor an 11px status bar sat under 9px body text. */
+  font-size: calc(var(--envy-font-size) * 10 / 12);
   /* One fixed line: the bar must not grow because a button or a box-drawing
      glyph joined it, only when the window is too narrow and it wraps. */
   line-height: 1.6;

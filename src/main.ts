@@ -50,6 +50,7 @@ import {
   tableEditing,
 } from './tables'
 import { installSmoothScroll, scrollTarget, smoothScrollTo } from './smooth-scroll'
+import { installWindowChrome, IS_WINDOWS, REVEAL_LABEL } from './window-chrome'
 import {
   applyEditorZoom,
   applyStoredAppearance,
@@ -105,6 +106,16 @@ import {
 window.addEventListener('unhandledrejection', (e) => {
   console.error('unhandled rejection — something failed silently:', e.reason)
 })
+
+if (IS_WINDOWS) document.documentElement.classList.add('windows')
+// The two buttons that open a file manager carry the Linux wording in the
+// markup; on Windows they take the Explorer name from the same constant the
+// menus use. Done here rather than with the `.linux-only` class, because these
+// are one button whose label changes, not an element to hide.
+for (const id of ['trash-reveal', 'settings-open-folder']) {
+  const b = document.getElementById(id)
+  if (b) b.textContent = REVEAL_LABEL
+}
 
 interface NoteDto {
   id: string
@@ -3116,7 +3127,7 @@ function scrollHighlightedRowIntoView() {
 function trashMenuItems(note: NoteDto): MenuItemSpec[] {
   return [
     { label: 'Restore', run: () => restoreTrashed(note) },
-    { label: 'Show in Folder', run: () => invoke('reveal_note', { id: note.id }) },
+    { label: REVEAL_LABEL, run: () => invoke('reveal_note', { id: note.id }) },
     { label: 'Delete', destructive: true, run: () => deleteTrashed(note) },
   ]
 }
@@ -3328,6 +3339,7 @@ interface SearchSpec {
 interface SearchPage {
   notes: NoteDto[]
   total: number
+  ready?: boolean
 }
 
 /// The spec the rows currently in `results` were fetched under. Every later
@@ -3395,6 +3407,7 @@ function installFirstPage(page: SearchPage) {
   // Normally one page, but the test hook installs a whole list this way — mark
   // every page the rows actually cover, so nothing is re-fetched.
   for (let p = 0; p * PAGE_SIZE < page.notes.length; p++) loadedPages.add(p)
+  setIndexLoading(page.ready === false)
 }
 
 /// Fetches whatever pages `[from, to)` needs and paints them as they land.
@@ -3637,6 +3650,39 @@ async function performSearch() {
   highlighted = 0
   renderList()
   renderCreateHint()
+  await revealFirstResult(gen)
+}
+
+/// The Mac's list selection follows the query: as it changes, the first result
+/// is selected and the editor shows it, scrolled to the match — you read the
+/// hit as you type rather than after an extra Return. Only when the *query*
+/// changed: the watcher and every settings toggle re-run the same search, and
+/// re-selecting the top row then would yank you out of whatever you had
+/// arrowed or clicked to. Clearing the box keeps what's open — a blank query
+/// selects nothing, it just stops filtering. No result at all leaves nothing
+/// selected, so the editor empties, the way the Mac's does ahead of "Press ⏎
+/// to create". Focus stays in the box throughout.
+let lastRevealedQuery = ''
+async function revealFirstResult(gen: number) {
+  const query = searchInput.value
+  if (query === lastRevealedQuery) return
+  lastRevealedQuery = query
+  if (!query.trim()) return
+  const first = results[highlighted]
+  if (!first) {
+    if (activePane.noteId === null && activePane.external === null) return
+    // `closeEditor` drops the buffer without writing it; an edit still
+    // waiting on its timer would be lost with it.
+    cancelPendingSave()
+    await save()
+    if (gen !== searchGeneration) return
+    closeEditor()
+    return
+  }
+  // Re-opening the note already showing would reset its cursor and scroll
+  // for nothing; the jump to the new query's first match happened above.
+  if (first.id === activePane.noteId) return
+  await openHighlighted(false)
 }
 
 /// Focus the editor after opening, unless the setting says to stay in the
@@ -4299,7 +4345,7 @@ function noteMenuItems(note: NoteDto): MenuItemSpec[] {
     ...(settings.includeSubfolders
       ? [{ label: 'Move to', submenu: () => moveToItems([note.id]) } as MenuItemSpec]
       : []),
-    { label: 'Show in Folder', run: () => invoke('reveal_note', { id: note.id }) },
+    { label: REVEAL_LABEL, run: () => invoke('reveal_note', { id: note.id }) },
     {
       label: 'Make This Note a Template',
       run: async () => {
@@ -5609,8 +5655,17 @@ function syncTheme() {
   })
 }
 function syncFontSettingsRow() {
-  const custom = settings.fontSource === 'custom'
+  // `font` defaults to `omarchy` in the schema, which is one shared file: Rust,
+  // the frontend and the skill docs all read it, so it cannot carry a
+  // per-platform default. Windows has no Omarchy font to follow, and the option
+  // is hidden there, so the stored default resolves to the custom family
+  // instead — otherwise the dropdown sits on an option nobody can see and the
+  // family row stays hidden with it.
+  const custom =
+    settings.fontSource === 'custom' || (IS_WINDOWS && settings.fontSource === 'omarchy')
   el('setting-font-custom-row').classList.toggle('hidden', !custom)
+  const omarchyFont = dropdown('setting-font').querySelector('option[value="omarchy"]')
+  if (omarchyFont) (omarchyFont as HTMLOptionElement).hidden = IS_WINDOWS
 }
 
 // --- Font family picker ------------------------------------------------------
@@ -5779,7 +5834,13 @@ function setFooterNotice(source: string, lines: string[]) {
 let loadingDepth = 0
 function setLoading(active: boolean) {
   loadingDepth = Math.max(0, loadingDepth + (active ? 1 : -1))
-  loadingEl.classList.toggle('hidden', loadingDepth === 0)
+  loadingEl.classList.toggle('hidden', loadingDepth === 0 && !indexLoading)
+}
+
+let indexLoading = false
+function setIndexLoading(loading: boolean) {
+  indexLoading = loading
+  loadingEl.classList.toggle('hidden', loadingDepth === 0 && !indexLoading)
 }
 
 // --- Reference sheets --------------------------------------------------------
@@ -6385,7 +6446,7 @@ function renderThemeOptions() {
   const select = dropdown('setting-theme')
   const files = themeFiles()
   const options = [
-    themeOption('omarchy', 'Follow Omarchy'),
+    ...(IS_WINDOWS ? [] : [themeOption('omarchy', 'Follow Omarchy')]),
     themeOption('system', 'Follow system'),
     themeOption('dark', 'Dark (Envious)'),
     themeOption('light', 'Light (Envious)'),
@@ -6710,6 +6771,11 @@ try {
 
 async function boot() {
   installSmoothScroll()
+  installWindowChrome({
+    close: 'hide',
+    dragEl: document.getElementById('search-bar'),
+  })
+  setIndexLoading(true)
   // The config comes first, before anything reads a setting: every value below
   // is in it, and starting from a default that then has to be corrected on
   // screen is a flicker with nothing to gain.
@@ -6765,18 +6831,20 @@ async function boot() {
   // The same pass a change to config.md takes, so a value can never behave
   // differently at launch than it does when the file changes.
   applyAllSettings({ initial: true })
-  await pushed
-  // The autofill and wiki-link title sources, seeded once. From here they only
-  // refresh when the note set actually changes — see refreshCompletionSources.
-  void refreshCompletionSources()
+  searchInput.focus()
+  initKindleImport(openSettings)
+  // Search and the Index scan must not block first paint. `index-changed`
+  // refills the list when the background walk finishes; this still runs once
+  // now in case that event already fired.
+  void pushed.then(() => {
+    void refreshCompletionSources()
+    void runSearch()
+  })
   // The Mac empties on launch and then hourly: a summon/hide app can run for
   // weeks without a relaunch, so a launch-only check can't keep an "every N
   // days" schedule honest. Cheap on the ticks it isn't due — just a date compare.
   void emptyTrashIfDue()
   window.setInterval(() => void emptyTrashIfDue(), 60 * 60 * 1000)
-  await runSearch()
-  searchInput.focus()
-  initKindleImport(openSettings)
 }
 
 // Exposed for debugging from the webview console. The decoration pass is

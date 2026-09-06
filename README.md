@@ -1,182 +1,47 @@
-# Envy for Linux
+# Envy for Windows
 
-A Linux port of [Envy](https://github.com/skuthus/Envy) — a flat-file,
-frictionless note-taking application. One search box, instant results, and
-notes stored as plain `.md` files.
+A Windows port of [Envy-Linux](https://github.com/skuthus/Envy-Linux) — a flat-file, frictionless note-taking application. One search box, instant results, and notes stored as plain `.md` files.
 
-Open source under the MIT license. It is the Linux sibling of
-[Envy-Windows](https://github.com/skuthus/Envy-Windows): the same Rust
-`envy-core`, the same CodeMirror 6 frontend, the same Tauri v2 shell, built
-for WebKitGTK instead of WebView2. It is not a rebuild of the macOS Swift app.
-The working brief is **[PLAN.md](PLAN.md)**; agents start there.
+This tree is a greenfield port of the Linux app (Tauri v2 + Rust `envy-core` + CodeMirror 6), not a merge with the older Envy-Windows 1.7-era codebase. Omarchy, Hyprland, and WebKitGTK integrations are gated out; the shell uses WebView2, a Win32 tray icon, and in-process global shortcuts.
 
-## Running it (owner's machine: Omarchy / Arch / Hyprland)
+Open source under the MIT license. The macOS original is at [envynote.app](https://envynote.app).
 
-Toolchain: Rust stable (`mise use -g rust@stable`), Node 26, and the system
-packages `webkit2gtk-4.1 gtk3 librsvg openssl`.
+## Running it
 
-```bash
+Toolchain: Rust stable (`x86_64-pc-windows-msvc`), Node LTS, and MSVC C++ build tools + Windows SDK. WebView2 is bundled on Windows 11.
+
+```
 npm install
-./dev.sh                    # hot-reloading dev build
-./build.sh                  # headless pre-ship gate, then binary + .deb + AppImage
-./linux/install-desktop.sh  # ~/.local/share/applications/envy.desktop → the release binary
+dev.cmd                 # hot-reloading dev build
+build.cmd               # release binary + NSIS installer
 ```
 
-Notes live in `~/Documents/Envy` by default, created on first launch with a
-welcome note; Settings → Change Location… points it at another folder. The
-chosen path is the `vault` key of `~/.config/envy/config.md` (see
-Configuration below); older installs are migrated from
-`~/.config/app.envynote.linux/index-path` on first launch.
+Notes live in `%USERPROFILE%\Documents\Envy` by default, created on first launch with a welcome note. Settings → Change Location… points it at another folder. The chosen path is the `vault` key of `%APPDATA%\envy\config.md`.
 
-**Omarchy theme.** This Envy-Linux variant follows the current Omarchy
-theme (`~/.local/state/omarchy/current/theme/colors.toml`) and the Omarchy
-monospace font. Changing `omarchy theme set` or `omarchy font set` retints a
-running window. Settings → Appearance can pin Envious light/dark or a custom
-font instead. Surfaces are translucent so Hyprland blur shows through.
-
-**Bar icon.** The Mac's menu bar eye is an Omarchy bar widget here. On first
-launch Envy installs `linux/omarchy-plugin` into
-`~/.config/omarchy/plugins/skuthus.envy/`, enables it, and places it once
-(after a hidden-bar chevron if you use one, else at the start of the right
-section); move it with `omarchy bar move` and it stays put. Open while the
-window is on screen, squinting while only the pinned note is, closed while
-hidden. While Envy isn't running the eye leaves the bar, unless the menu's
-"Show Eye in Bar When Closed" is on (the widget's `showWhenClosed` setting in
-`shell.json`), which keeps a dim eye there as a launcher. Left click summons
-(or launches) Envy, right click opens the app menu. Underneath it is a StatusNotifierItem Envy registers
-itself, drawn as a solid `-symbolic` eye in the bar's text color, so other
-bars (Waybar) show it in their tray; the Omarchy tray widget hides it so it
-isn't shown twice.
-
-**Summon.** Wayland has no app-registered global hotkeys, so summon is a
-Hyprland bind: `linux/hyprland-envy.lua` binds **Ctrl+Alt+Return** to
-`linux/envy-summon.sh`, which runs `envynote --toggle`. That hands the verb
-to the running instance over its control socket
-(`$XDG_RUNTIME_DIR/envy-control.sock`; verbs `toggle`, `show`, `pinned`) and
-does exactly what the bar icon's click does, or launches Envy when nothing is
-running. Settings → System → "Bind Ctrl+Alt+Return in Hyprland" (the
-`system.hyprland_bind` key) adds a guarded `dofile` line for that file to
-`~/.config/hypr/bindings.lua` and reloads Hyprland; off removes it. A line you
-wrote yourself is left alone, and none is added beside it. The in-app shortcut
-settings still exist for X11 / a future portal backend.
-
-**NVIDIA.** WebKitGTK's DMA-BUF renderer aborts the Wayland connection on the
-proprietary driver ("Error 71 (Protocol error)" before any window appears).
-`src-tauri/src/main.rs` sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` when the
-`nvidia` module is loaded; set the variable yourself to override either way.
-
-**Test Index.** `node scripts/gen-test-vault.mjs [dir] [count]` writes a
-seeded ~5,500-note vault (tags, task lists, due dates, wiki-links, embeds,
-image attachments, subfolders, Inbox, Templates, `.trash`) — default
-`~/Envy Test Vault`. It refuses to write into a folder that already holds
-notes. Do destructive testing there, never in a synced vault.
-
-**Installing a release.** Omarchy / Arch: Envy ships from its own pacman
-repository (the AUR closed registrations when 1.0.0 shipped). Add to
-`/etc/pacman.conf` once:
-
-```
-[envynote]
-SigLevel = Optional TrustAll
-Server = https://github.com/skuthus/Envy-Linux/releases/download/repo
-```
-
-then `sudo pacman -Sy envynote`. Updates arrive with `omarchy update` (or a
-plain `pacman -Syu` on other Arch systems; Omarchy's hook blocks that form).
-Launch it and turn on Settings → System → "Bind Ctrl+Alt+Return in
-Hyprland" (or add `pcall(dofile, "/usr/share/envy/hyprland-envy.lua")` to
-`~/.config/hypr/bindings.lua` yourself). Prefer building it yourself?
-`cd linux && makepkg -si` from a clone. Elsewhere, run the AppImage from the
-GitHub release. Cutting a release is `scripts/release.sh`;
-see RELEASING.md. Envy is MIT licensed (LICENSE). The Linux port numbers its
-own releases (1.0.0 onwards): it follows the Mac app's features, not its
-version.
+**Summon.** `Ctrl+Alt+Enter` shows or hides Envy from any app (Tauri global shortcut). The tray eye does the same on left click; right click opens the app menu.
 
 ## Configuration
 
-Everything Envy can be told is in two kinds of file, and the Settings panel
-writes the same files, so the GUI and the files never disagree. Both are
-markdown with one ` ```toml ` fence, which means they open and edit in Envy
-itself. Changes apply live; nothing needs restarting.
+Same file shape as Linux: markdown with one ` ```toml ` fence. Missing keys mean defaults.
 
-`~/.config/envy/config.md` holds every setting. Missing keys mean defaults,
-and an unknown key or a bad value is reported rather than fatal.
-
-````markdown
-# Envy settings
-
-Edit here or in Settings; both stay in sync.
-
-```toml
-vault = "~/Documents/Envy"
-
-[list]
-density = "compact"
-
-[shortcuts]
-newFromTemplate = "Ctrl+N"
-```
-````
-
-`~/.config/envy/themes/<name>.md` is one theme. Every color token is
-optional: what you leave out comes from the face underneath, which is the
-Omarchy-derived palette in `omarchy` mode and the Envious light or dark face
-otherwise. A file named after the current Omarchy theme's slug (the contents
-of `~/.local/state/omarchy/current/theme.name`) overlays that theme
-automatically, so per-theme tweaks are a few lines rather than a whole
-palette. The body is a sample note so the file previews the theme when opened
-in Envy.
-
-````markdown
-# Tokyo Night, warmer links
-
-```toml
-mode = "dark"
-link = "#e0af68"
-```
-
-A sample note with a [link](https://envynote.app), a #tag and `code`.
-````
+`%APPDATA%\envy\config.md` holds every setting. Theme files live in `%APPDATA%\envy\themes\`.
 
 From the command line:
 
-```bash
-envynote config check          # validate config.md; exit 1 with the problems
-envynote config path           # print the config path
-envynote config edit           # open config.md in Envy (needs it running)
-envynote theme list            # theme file names, with any problems
-envynote theme check           # validate every theme file; exit 1 with the problems
-envynote theme export <name>   # save the theme in use now as themes/<name>.md
 ```
-
-**The agent skill.** `agents/skills/envy/` teaches an agent all of the above:
-the file shapes, every setting key, every re-bindable shortcut, the color
-tokens and the contrast floors. The package installs it to
-`/usr/share/envy/agents/skills/envy`, and Envy links it into
-`~/.claude/skills/envy` and `~/.agents/skills/envy` at launch when those are
-missing or dangling. It never replaces a real directory or a symlink pointing
-somewhere else, so linking it by hand is also fine:
-
-```bash
-ln -s /usr/share/envy/agents/skills/envy ~/.claude/skills/envy
-ln -s ~/Work/Envy-omarchy/agents/skills/envy ~/.agents/skills/envy   # checkout
+envynote config check
+envynote config path
+envynote theme list
 ```
-
-`settings.md` and `shortcuts.md` in that directory are generated from
-`config/schema.json` and `src/shortcuts.ts` by
-`node scripts/gen-skill-docs.mjs`; `scripts/check.sh` fails if they are stale.
 
 ## Structure
 
-- `crates/envy-core` — the note model and store, ported from the Mac
-  `EnvyCore`. No UI, no Tauri, no platform assumptions. `cargo test -p envy-core`.
-- `src-tauri` — the Tauri v2 shell: windowing, tray, file dialogs.
-- `src` — the TypeScript frontend; live markdown styling is CodeMirror 6
-  decorations over a plain text buffer.
+- `crates/envy-core` — the note model and store. No UI, no Tauri. `cargo test -p envy-core`.
+- `src-tauri` — the Tauri v2 shell: windowing, tray, file dialogs, updater.
+- `src` — the TypeScript frontend; live markdown styling is CodeMirror 6 decorations over a plain text buffer.
 
-Built by [Skyler Schoos](https://github.com/skuthus). The macOS original is at
-[envynote.app](https://envynote.app).
+Linux-only modules (`hyprland.rs`, `omarchy.rs`, `control.rs`, `kindle_mtp.rs`, `tray_linux.rs`) stay in the tree behind `cfg(target_os = "linux")` and are not compiled here.
 
 ## License
 
-MIT, the same terms as Omarchy. See [LICENSE](LICENSE).
+MIT. See LICENSE.

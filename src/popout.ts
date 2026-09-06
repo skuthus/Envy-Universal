@@ -30,6 +30,7 @@ import {
 } from './completion'
 import { initAppearance, applyEditorZoom } from './theme'
 import { installSmoothScroll } from './smooth-scroll'
+import { installWindowChrome } from './window-chrome'
 import { getBool, getNumber, onChange as onConfigChange } from './config'
 
 // Its own entry point, so it needs its own last-resort handler — the main
@@ -38,6 +39,10 @@ window.addEventListener('unhandledrejection', (e) => {
   console.error('pop-out failed silently:', e.reason)
 })
 installSmoothScroll()
+installWindowChrome({
+  close: 'close',
+  dragEl: document.getElementById('popout-title-bar'),
+})
 
 interface NoteDto {
   id: string

@@ -1,7 +1,7 @@
 [package]
 name = "envynote"
 version = "1.0.2"
-description = "A flat-file, frictionless note-taking application for Linux"
+description = "A flat-file, frictionless note-taking application for Windows"
 authors = ["Skyler Schoos"]
 license = "MIT"
 edition = "2021"
@@ -19,12 +19,13 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-opener = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-window-state = "2"
+tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 # preserve_order: the one file this app rewrites that it does not own (Omarchy's
 # shell.json, see tray.rs) must come back with its keys in the order the user
@@ -33,21 +34,30 @@ serde_json = { version = "1", features = ["preserve_order"] }
 envy-core = { path = "../crates/envy-core" }
 dirs = "5"
 chrono = "0.4"
-# The bar icon is a StatusNotifierItem registered straight over D-Bus (see
-# tray.rs for why Tauri's own tray doesn't work on Omarchy's bar). tiny-skia
-# draws the eye; gtk is the version Tauri already links, for the window
-# map/unmap signals the eye follows.
-ksni = { version = "0.3", features = ["blocking"] }
 tiny-skia = "0.11"
-gtk = "0.18"
 toml = "1.1.5"
 toml_edit = "0.25.13"
 notify.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# The bar icon is a StatusNotifierItem registered straight over D-Bus (see
+# tray.rs for why Tauri's own tray doesn't work on Omarchy's bar). gtk is the
+# version Tauri already links, for the window map/unmap signals the eye follows.
+ksni = { version = "0.3", features = ["blocking"] }
+gtk = "0.18"
 
 [dev-dependencies]
 # Only for the test that reads this file's own source and refuses a new command
 # that takes a raw `path: String` without review. Already in the lockfile.
 regex = "1"
+
+# Production loads the bundled `dist/` over wry's custom protocol.
+# `tauri dev` omits this so the window talks to Vite; `tauri build` and a
+# plain `cargo build --release --features custom-protocol` turn it on.
+# Without it the webview asks for http://localhost:1420 and Edge shows
+# "Hmm, this page can't be reached".
+[features]
+custom-protocol = ["tauri/custom-protocol"]
 
 [target.'cfg(windows)'.dependencies]
 # The updater has a release channel only on Windows; see RELEASING.md.
@@ -55,5 +65,18 @@ tauri-plugin-updater = "2"
 # Matches the version Tauri already pulls in, so its HWND type lines up with
 # `WebviewWindow::hwnd()`. Used to restack the window on the Windows Z-order —
 # clearing the topmost flag alone leaves the window above the app you're using.
-windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Threading",
+    "Win32_System_Com",
+    "Win32_System_Registry",
+    "Win32_Globalization",
+    "Win32_UI_HiDpi",
+] }
+# Same version wry already compiles against. Used to show a native window
+# and pre-create the WebView2 environment before Tauri blocks on it.
+webview2-com = "0.38"
 

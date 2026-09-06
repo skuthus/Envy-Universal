@@ -619,25 +619,40 @@ pub fn find_clippings_under(roots: &[PathBuf]) -> Option<PathBuf> {
     None
 }
 
-/// Where a USB-mounted Kindle appears on Linux: udisks puts removable media
-/// under `/run/media/<user>/` (or `/media/<user>/` on older setups), some
-/// distributions use `/media/` directly, and `/mnt/` covers a hand mount.
+/// Where a USB-mounted Kindle appears: drive letters on Windows, the usual
+/// removable-media mounts on Linux.
 pub fn detection_roots() -> Vec<PathBuf> {
-    let user = std::env::var("USER").ok().or_else(|| {
-        std::env::var("HOME").ok().and_then(|h| {
-            Path::new(&h)
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-        })
-    });
-    let mut roots = Vec::new();
-    if let Some(user) = &user {
-        roots.push(PathBuf::from("/run/media").join(user));
-        roots.push(PathBuf::from("/media").join(user));
+    #[cfg(windows)]
+    {
+        // Kindles show up as a removable drive, not the system volume. Walking
+        // C:\ looking for documents/My Clippings.txt would be both slow and
+        // a false-positive magnet.
+        let system = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".into());
+        (b'A'..=b'Z')
+            .map(|c| format!("{}:", c as char))
+            .filter(|letter| !letter.eq_ignore_ascii_case(&system))
+            .map(|letter| PathBuf::from(format!("{}\\", letter)))
+            .filter(|p| p.is_dir())
+            .collect()
     }
-    roots.push(PathBuf::from("/media"));
-    roots.push(PathBuf::from("/mnt"));
-    roots
+    #[cfg(not(windows))]
+    {
+        let user = std::env::var("USER").ok().or_else(|| {
+            std::env::var("HOME").ok().and_then(|h| {
+                Path::new(&h)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+            })
+        });
+        let mut roots = Vec::new();
+        if let Some(user) = &user {
+            roots.push(PathBuf::from("/run/media").join(user));
+            roots.push(PathBuf::from("/media").join(user));
+        }
+        roots.push(PathBuf::from("/media"));
+        roots.push(PathBuf::from("/mnt"));
+        roots
+    }
 }
 
 /// The plugged-in Kindle's `My Clippings.txt`, if any.
@@ -1125,17 +1140,28 @@ a totally different second thought\r\n\
         std::fs::write(root.join(".hidden/documents/My Clippings.txt"), "").unwrap();
         assert_eq!(find_clippings_under(&[root.clone()]), None);
         std::fs::write(root.join("Kindle/documents/My Clippings.txt"), "").unwrap();
+        let found = find_clippings_under(&[dir.path().join("missing"), root.clone()]).unwrap();
         assert_eq!(
-            find_clippings_under(&[dir.path().join("missing"), root.clone()]),
-            Some(root.join("Kindle/documents/My Clippings.txt"))
+            found.canonicalize().unwrap(),
+            root.join("Kindle/documents/My Clippings.txt").canonicalize().unwrap()
         );
         // A differently-cased documents folder still counts.
         let other = dir.path().join("media");
-        std::fs::create_dir_all(other.join("KINDLE/Documents")).unwrap();
-        std::fs::write(other.join("KINDLE/Documents/My Clippings.txt"), "").unwrap();
+        std::fs::create_dir_all(other.join("KINDLE").join("Documents")).unwrap();
+        std::fs::write(
+            other.join("KINDLE").join("Documents").join("My Clippings.txt"),
+            "",
+        )
+        .unwrap();
+        let found = find_clippings_under(&[other.clone()]).unwrap();
         assert_eq!(
-            find_clippings_under(&[other.clone()]),
-            Some(other.join("KINDLE/Documents/My Clippings.txt"))
+            found.canonicalize().unwrap(),
+            other
+                .join("KINDLE")
+                .join("Documents")
+                .join("My Clippings.txt")
+                .canonicalize()
+                .unwrap()
         );
     }
 }

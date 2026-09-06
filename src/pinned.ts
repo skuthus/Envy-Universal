@@ -30,6 +30,7 @@ import {
 } from './completion'
 import { enviousDark, initAppearance } from './theme'
 import { installSmoothScroll } from './smooth-scroll'
+import { installWindowChrome } from './window-chrome'
 import { getBool } from './config'
 
 // This window is where the silent-failure pattern first bit — see `hide()`
@@ -39,6 +40,10 @@ window.addEventListener('unhandledrejection', (e) => {
   console.error('unhandled rejection — something failed silently:', e.reason)
 })
 installSmoothScroll()
+installWindowChrome({
+  close: 'hide',
+  dragEl: document.getElementById('pinned-title-bar'),
+})
 
 interface NoteDto {
   id: string

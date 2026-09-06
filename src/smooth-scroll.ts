@@ -210,5 +210,11 @@ export function cancelSmoothScroll(el: HTMLElement) {
 }
 
 export function installSmoothScroll() {
+  // A non-passive capture wheel listener forces Chromium to wait on the
+  // main thread for every tick, which is what this interpolator is for on
+  // WebKitGTK (discrete line events). WebView2 already delivers pixel
+  // deltas and compositor-thread scrolling; installing this on Windows
+  // makes the list and editor feel frozen.
+  if (/Windows/i.test(navigator.userAgent)) return
   window.addEventListener('wheel', onWheel, { passive: false, capture: true })
 }

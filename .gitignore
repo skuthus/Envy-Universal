@@ -43,3 +43,7 @@ envy-updater-key.pub
 
 # Agent worktrees (Claude Code), never project content.
 .claude/worktrees/
+
+# Windows dev-server log and Tauri codegen output
+dev.log
+src-tauri/gen

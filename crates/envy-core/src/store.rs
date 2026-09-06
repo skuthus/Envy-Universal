@@ -112,12 +112,23 @@ pub struct NoteStore {
 
 impl NoteStore {
     pub fn open(directory: impl Into<PathBuf>, include_subfolders: bool) -> std::io::Result<Self> {
+        let mut store = Self::open_unscanned(directory, include_subfolders)?;
+        store.reload();
+        Ok(store)
+    }
+
+    /// Opens the Index folder without reading notes. The window can come up
+    /// while a background `reload` / `open` walks the files.
+    pub fn open_unscanned(
+        directory: impl Into<PathBuf>,
+        include_subfolders: bool,
+    ) -> std::io::Result<Self> {
         let directory = directory.into();
         fs::create_dir_all(&directory)?;
         // Resolved once, so every note's id/path and any future watch agree on
         // one path form.
         let directory = dunce::canonicalize(&directory).unwrap_or(directory);
-        let mut store = Self {
+        Ok(Self {
             directory,
             include_subfolders,
             notes: Vec::new(),
@@ -125,9 +136,7 @@ impl NoteStore {
             last_deleted: Vec::new(),
             folders: OnceLock::new(),
             title_matcher: OnceLock::new(),
-        };
-        store.reload();
-        Ok(store)
+        })
     }
 
     pub fn directory(&self) -> &Path {
@@ -1876,6 +1885,7 @@ mod tests {
     /// filename here but not on Windows). That's deterministic, not a
     /// collision, so the move goes ahead and references follow, as on rename.
     #[test]
+    #[cfg(unix)]
     fn moving_a_note_whose_title_sanitizes_rewrites_its_links() {
         let (dir, mut store) = store_with(&[("What?.md", "x"), ("Hub.md", "see [[What?]]")]);
         let id = store.notes().iter().find(|n| n.title() == "What?").unwrap().id().to_string();

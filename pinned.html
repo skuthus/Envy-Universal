@@ -2,6 +2,9 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      if (/Windows/i.test(navigator.userAgent)) document.documentElement.classList.add('windows')
+    </script>
     <link rel="stylesheet" href="/src/styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Pinned note</title>
@@ -14,6 +17,11 @@
         <span id="pinned-title"></span>
         <button id="pinned-keep-open" type="button">📌</button>
         <button id="pinned-open" type="button" title="Open in Envy">Open</button>
+        <div class="window-controls" role="group" aria-label="Window">
+          <button type="button" data-win="minimize" title="Minimize" aria-label="Minimize"></button>
+          <button type="button" data-win="maximize" title="Maximize" aria-label="Maximize"></button>
+          <button type="button" data-win="close" title="Hide" aria-label="Hide"></button>
+        </div>
       </div>
       <div id="pinned-editor"></div>
     </div>

@@ -22,8 +22,17 @@ import {
 //   green         tags and ticked checkboxes
 //   yellow/amber  due-soon, and search matches
 
-export const SYSTEM_UI_FONT = "system-ui, sans-serif"
-export const MONO_FONT = "ui-monospace, monospace"
+export const SYSTEM_UI_FONT = "system-ui, 'Segoe UI', sans-serif"
+/// The face each platform falls back to when nothing else has been chosen —
+/// see `resolveFont`, which prefers an explicit custom family, then Omarchy's,
+/// then this. Windows ships Cascadia Mono (Windows 11) and Consolas (back to
+/// Vista), so it names one every machine actually has, and Mono — the face
+/// without ligatures — is the one that reads as a plain text editor. Linux
+/// gets JetBrains Mono, with the same two as backstops for a machine that has
+/// not installed it.
+export const MONO_FONT = /Windows/i.test(navigator.userAgent)
+  ? "'Cascadia Mono', Consolas, ui-monospace, monospace"
+  : "'JetBrains Mono', 'Cascadia Mono', ui-monospace, monospace"
 
 export interface EnvyTheme {
   /// Font is part of the theme on the Mac (`Theme.fontName` / `fontSize`) and
@@ -236,6 +245,11 @@ function isLightMode(colors: Record<string, string>): boolean {
 /// wrote `#1a1b26ff` meant it, and re-writing their alpha would make the file
 /// and the screen disagree.
 function withSurfaceAlpha(theme: EnvyTheme, light: boolean, keep?: Set<string>): EnvyTheme {
+  // Windows WebView2 is an opaque HWND; alpha on every surface only costs
+  // compositor work. Hyprland blur is a Linux-only trick.
+  if (typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent)) {
+    return theme
+  }
   // High enough that glyph coverage doesn't mix with the wallpaper blur —
   // that's the usual "WebKit looks soft" look — but still short of opaque so
   // Hyprland blur remains visible in the chrome.
@@ -377,7 +391,15 @@ function pinnedSurfaces(tokens: Record<string, string>): Set<string> {
 /// face, and a theme file — named outright, or named after the current
 /// Omarchy theme — paints over it.
 function resolveAppearance(): { theme: EnvyTheme; dark: boolean; notices: string[] } {
-  const selection = getString('appearance', 'theme') || 'omarchy'
+  // Both platforms default to Envious dark; a machine running Omarchy defaults
+  // to following it instead, for the theme here and for the font in
+  // `resolveFont`. Decided at resolve time rather than baked into the schema:
+  // the desktop's colours arrive asynchronously (`omarchy_appearance`), so at
+  // first paint there is nothing to follow yet, and one shared schema file
+  // cannot carry a per-machine default anyway. An explicit `appearance.theme`
+  // always wins — this only fills in when the setting is unset.
+  const omarchyReady = Boolean(omarchy?.colors?.background)
+  const selection = getString('appearance', 'theme') || (omarchyReady ? 'omarchy' : 'dark')
   const builtIn = BUILT_IN_THEMES.includes(selection)
   // In Omarchy mode a file named after the current Omarchy theme is an
   // override for that theme alone, which is what makes partial overrides the
@@ -390,7 +412,6 @@ function resolveAppearance(): { theme: EnvyTheme; dark: boolean; notices: string
   const tokens = file?.tokens ?? {}
   const meta = metaFromTokens(tokens)
   const font = meta.fontFamily ? cssFontStack(meta.fontFamily) : resolveFont(omarchy?.font)
-  const omarchyReady = Boolean(omarchy?.colors?.background)
 
   let dark: boolean
   let base: EnvyTheme

@@ -10,6 +10,7 @@ import { EditorView } from '@codemirror/view'
 import { EditorSelection } from '@codemirror/state'
 import { invoke } from '@tauri-apps/api/core'
 import { buildImageMarker, invalidateAttachment, type ImageEmbedSpec } from './styler'
+import { REVEAL_LABEL } from './window-chrome'
 import { openContextMenu } from './context-menu'
 import { textPrompt, alertModal } from './prompt-modal'
 
@@ -162,7 +163,7 @@ export function openImageMenu(
     { label: 'Rename…', run: () => onRename(spec.name) },
     { label: 'Open image', run: () => void invoke('open_attachment', { name: spec.name }) },
     {
-      label: 'Show in Folder',
+      label: REVEAL_LABEL,
       run: () => void invoke('reveal_attachment', { name: spec.name }),
     },
   ])

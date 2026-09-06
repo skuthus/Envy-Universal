@@ -899,7 +899,34 @@ pub fn install_skill() {
 }
 
 #[cfg(not(unix))]
-pub fn install_skill() {}
+pub fn install_skill() {
+    let Some(source) = skill_source() else { return };
+    let Some(home) = dirs::home_dir() else { return };
+    for target in [home.join(r".claude\skills\envy"), home.join(r".agents\skills\envy")] {
+        if target.exists() {
+            continue;
+        }
+        if let Some(parent) = target.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = copy_dir(&source, &target);
+    }
+}
+
+#[cfg(not(unix))]
+fn copy_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let to = dst.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir(&entry.path(), &to)?;
+        } else {
+            let _ = std::fs::copy(entry.path(), to);
+        }
+    }
+    Ok(())
+}
 
 // --- Startup -----------------------------------------------------------------
 
@@ -1235,7 +1262,7 @@ fn check_themes() -> i32 {
 
 /// Verbs that need the running app: it owns the window and the resolved theme.
 fn forward(verb: &str) -> i32 {
-    if crate::control::send(verb) {
+    if crate::control_send(verb) {
         0
     } else {
         eprintln!("envynote: Envy is not running");

@@ -13,9 +13,12 @@
     "withGlobalTauri": false,
     "windows": [
       {
+        "label": "main",
         "title": "Envy",
         "width": 800,
         "height": 600,
+        "minWidth": 480,
+        "minHeight": 360,
         "transparent": true,
         "decorations": false,
         "shadow": false

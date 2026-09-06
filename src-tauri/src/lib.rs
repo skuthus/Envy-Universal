@@ -15,16 +15,103 @@ use tauri::{Emitter, Manager, State, WebviewWindow};
 use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
 
 pub mod config;
+#[cfg(target_os = "linux")]
 mod control;
+#[cfg(target_os = "linux")]
 mod hyprland;
+#[cfg(target_os = "linux")]
 mod kindle_mtp;
+#[cfg(target_os = "linux")]
 mod omarchy;
 pub mod themes;
 mod tray;
+#[cfg(windows)]
+pub mod boot_windows;
+
+#[cfg(not(target_os = "linux"))]
+#[allow(dead_code)]
+mod hyprland {
+    use tauri::{AppHandle, Manager, WebviewWindow};
+
+    #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+    pub struct Geometry {
+        pub x: i64,
+        pub y: i64,
+        pub w: i64,
+        pub h: i64,
+    }
+
+    pub fn apply(_: bool) {}
+    pub fn apply_floating(_: &AppHandle) {}
+    pub fn apply_pinned(_: &AppHandle) {}
+    pub fn float_when_mapped(_: &WebviewWindow, _: fn() -> bool, _: Option<fn() -> bool>) {}
+    pub fn place_when_floating(_: String, _: Geometry) {}
+    pub fn geometry(_: &str) -> Option<Geometry> {
+        None
+    }
+
+    #[tauri::command]
+    pub fn main_window_fullscreen(app: AppHandle) -> bool {
+        app.get_webview_window("main")
+            .and_then(|w| w.is_fullscreen().ok())
+            .unwrap_or(false)
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+mod omarchy {
+    use std::collections::HashMap;
+
+    use serde::Serialize;
+    use tauri::AppHandle;
+
+    #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+    pub struct OmarchyAppearance {
+        pub colors: HashMap<String, String>,
+        pub font: String,
+        pub theme: Option<String>,
+    }
+
+    /// No Omarchy here, but the frontend's `resolveFont` still ranks this
+    /// font above its own built-in stack, so this *is* the Windows default
+    /// whenever `font_family` is unset. Cascadia Mono ships with Windows 11
+    /// and is the ligature-free face — what a plain text editor should show.
+    #[tauri::command]
+    pub fn omarchy_appearance() -> OmarchyAppearance {
+        OmarchyAppearance {
+            colors: HashMap::new(),
+            font: "Cascadia Mono".into(),
+            theme: None,
+        }
+    }
+
+    pub fn spawn_watcher(_: AppHandle) {}
+}
+
+#[cfg(not(target_os = "linux"))]
+mod kindle_mtp {
+    pub fn is_uri(_: &str) -> bool {
+        false
+    }
+    pub fn detect() -> Option<String> {
+        None
+    }
+    pub fn read(_: &str, _: usize) -> Result<Vec<u8>, String> {
+        Err("MTP Kindle import is not available on Windows.".into())
+    }
+}
 
 /// `envynote --toggle` and friends: see `control`.
 pub fn control_send(verb: &str) -> bool {
-    control::send(verb)
+    #[cfg(target_os = "linux")]
+    {
+        control::send(verb)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = verb;
+        false
+    }
 }
 
 /// A note as the frontend sees it. The store's `Note` isn't serialized
@@ -133,6 +220,10 @@ pub struct AppState {
     /// label forbids), so the page asks for its note through this map. Dead
     /// entries are swept lazily whenever a new pop-out is made.
     popouts: Mutex<std::collections::HashMap<String, String>>,
+    /// False until the first full Index scan has swapped into `store`. Search
+    /// can run against the empty store in the meantime so the window is not
+    /// stuck waiting on thousands of files.
+    index_ready: AtomicBool,
 }
 
 /// Translates the Mac's date tokens to chrono's strftime.
@@ -147,6 +238,13 @@ fn date_pattern_to_strftime(pattern: &str) -> String {
         .replace("EEEE", "%A")
         .replace("MM", "%m")
         .replace("dd", "%d")
+}
+
+/// 12-hour clock without a leading zero (`8:30 AM`). chrono's `%-I` does that
+/// on Unix and is rejected on Windows, so the trim is done in Rust.
+fn format_template_time(now: chrono::DateTime<chrono::Local>) -> String {
+    let raw = now.format("%I:%M %p").to_string();
+    raw.strip_prefix('0').unwrap_or(&raw).to_string()
 }
 
 #[tauri::command]
@@ -351,6 +449,8 @@ struct SearchSpec {
 struct SearchPage {
     notes: Vec<NoteDto>,
     total: usize,
+    /// False while the first Index scan is still running.
+    ready: bool,
 }
 
 impl SearchSpec {
@@ -402,6 +502,7 @@ fn search(spec: SearchSpec, offset: usize, limit: usize, state: State<AppState>)
     let hits = ordered_hits(store.notes(), &spec, &root);
     SearchPage {
         total: hits.len(),
+        ready: state.index_ready.load(Ordering::Relaxed),
         notes: hits
             .into_iter()
             .skip(offset)
@@ -1070,7 +1171,7 @@ fn create_note_from_template(
             &title,
             &template,
             &now.format(&date_pattern_to_strftime(&pattern)).to_string(),
-            &now.format("%-I:%M %p").to_string(),
+            &format_template_time(now),
         )
         .map(|n| NoteDto::from_note(&n, true, &root))
         .map_err(|e| e.to_string())
@@ -1287,7 +1388,7 @@ fn can_restore(state: State<AppState>) -> bool {
     state.store.lock().unwrap().can_restore_last_deleted()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn set_include_subfolders(include: bool, state: State<AppState>) -> usize {
     let mut store = state.store.lock().unwrap();
     store.set_include_subfolders(include);
@@ -1310,11 +1411,11 @@ struct FontFamily {
     mono: bool,
 }
 
-/// Every font family fontconfig knows, monospace ones flagged so the picker
-/// can put them first — Envy is a monospace app by default, and they are what
-/// most people are choosing between. Through `fc-list`, which is part of
-/// fontconfig itself and so on every machine that can render text at all;
-/// its `%{family[0]}` is the family's first name, the one CSS wants.
+/// Installed font families, monospace ones flagged so the picker can put them
+/// first. Linux asks fontconfig (`fc-list`). Windows returns the families
+/// every machine actually has, plus any others named in config.md which the
+/// picker keeps as their own entry.
+#[cfg(target_os = "linux")]
 #[tauri::command]
 fn font_families() -> Result<Vec<FontFamily>, String> {
     let out = std::process::Command::new("fc-list")
@@ -1338,6 +1439,40 @@ fn font_families() -> Result<Vec<FontFamily>, String> {
     Ok(seen
         .into_iter()
         .map(|(name, mono)| FontFamily { name, mono })
+        .collect())
+}
+
+#[cfg(windows)]
+#[tauri::command]
+fn font_families() -> Result<Vec<FontFamily>, String> {
+    const FONTS: &[(&str, bool)] = &[
+        // The default first, then the rest of what Windows itself installs.
+        ("Cascadia Mono", true),
+        ("Cascadia Code", true),
+        ("Consolas", true),
+        ("Courier New", true),
+        ("Lucida Console", true),
+        ("JetBrains Mono", true),
+        ("Fira Code", true),
+        ("Segoe UI", false),
+        ("Segoe UI Variable Text", false),
+        ("Calibri", false),
+        ("Cambria", false),
+        ("Georgia", false),
+        ("Times New Roman", false),
+        ("Arial", false),
+        ("Verdana", false),
+        ("Tahoma", false),
+        ("Sitka Text", false),
+        ("Bahnschrift", false),
+        ("Aptos", false),
+    ];
+    Ok(FONTS
+        .iter()
+        .map(|(name, mono)| FontFamily {
+            name: (*name).to_string(),
+            mono: *mono,
+        })
         .collect())
 }
 
@@ -2103,7 +2238,7 @@ pub(crate) fn create_and_pin(app: &tauri::AppHandle, template_path: Option<&str>
                             "",
                             &t,
                             &now.format(&date_pattern_to_strftime(&pattern)).to_string(),
-                            &now.format("%-I:%M %p").to_string(),
+                            &format_template_time(now),
                         )
                     }
                     None => return,
@@ -2166,7 +2301,8 @@ fn pinned_geometry_file(app: &tauri::AppHandle) -> Option<PathBuf> {
 }
 
 pub(crate) fn remember_pinned_geometry(app: &tauri::AppHandle) {
-    let (Some(path), Some(g)) = (pinned_geometry_file(app), hyprland::geometry(PINNED_TITLE)) else {
+    let g = pinned_geometry_now(app);
+    let (Some(path), Some(g)) = (pinned_geometry_file(app), g) else {
         return;
     };
     if let Some(dir) = path.parent() {
@@ -2177,9 +2313,42 @@ pub(crate) fn remember_pinned_geometry(app: &tauri::AppHandle) {
     }
 }
 
+fn pinned_geometry_now(app: &tauri::AppHandle) -> Option<hyprland::Geometry> {
+    #[cfg(target_os = "linux")]
+    {
+        hyprland::geometry(PINNED_TITLE)
+    }
+    #[cfg(windows)]
+    {
+        let w = app.get_webview_window(PINNED_WINDOW)?;
+        let pos = w.outer_position().ok()?;
+        let size = w.outer_size().ok()?;
+        Some(hyprland::Geometry {
+            x: pos.x as i64,
+            y: pos.y as i64,
+            w: size.width as i64,
+            h: size.height as i64,
+        })
+    }
+}
+
 fn saved_pinned_geometry(app: &tauri::AppHandle) -> Option<hyprland::Geometry> {
     let text = std::fs::read_to_string(pinned_geometry_file(app)?).ok()?;
     serde_json::from_str(&text).ok()
+}
+
+fn restore_pinned_geometry(app: &tauri::AppHandle, window: &WebviewWindow) {
+    let Some(g) = saved_pinned_geometry(app) else { return };
+    #[cfg(target_os = "linux")]
+    {
+        let _ = window;
+        hyprland::place_when_floating(PINNED_TITLE.to_string(), g);
+    }
+    #[cfg(windows)]
+    {
+        let _ = window.set_position(tauri::PhysicalPosition::new(g.x as i32, g.y as i32));
+        let _ = window.set_size(tauri::PhysicalSize::new(g.w as u32, g.h as u32));
+    }
 }
 
 /// The panel asks for this just before it hides itself, so what is saved is
@@ -2228,9 +2397,7 @@ pub(crate) fn show_pinned_window(app: &tauri::AppHandle) {
         let _ = w.show();
         let _ = w.set_focus();
         let _ = w.emit("pinned-note-changed", ());
-        if let Some(g) = saved_pinned_geometry(app) {
-            hyprland::place_when_floating(PINNED_TITLE.to_string(), g);
-        }
+        restore_pinned_geometry(app, &w);
         return;
     }
     let built = tauri::WebviewWindowBuilder::new(
@@ -2246,7 +2413,7 @@ pub(crate) fn show_pinned_window(app: &tauri::AppHandle) {
     .decorations(false)
     .always_on_top(true)
     .skip_taskbar(true)
-    .transparent(true)
+    .transparent(cfg!(not(windows)))
     .build();
     match built {
         Ok(w) => {
@@ -2255,9 +2422,7 @@ pub(crate) fn show_pinned_window(app: &tauri::AppHandle) {
             // so it hangs above every workspace the way the builder intends,
             // and lands centred, a short trip from anywhere.
             hyprland::float_when_mapped(&w, || true, Some(|| true));
-            if let Some(g) = saved_pinned_geometry(app) {
-                hyprland::place_when_floating(PINNED_TITLE.to_string(), g);
-            }
+            restore_pinned_geometry(app, &w);
             tray::follow_window(app, &w)
         }
         Err(e) => eprintln!("could not open the pinned-note window: {e}"),
@@ -2377,7 +2542,7 @@ async fn pop_out_note(id: String, inner_size: Option<(f64, f64)>, app: tauri::Ap
                 .maximizable(false)
                 .always_on_top(true)
                 .skip_taskbar(true)
-                .transparent(true)
+                .transparent(cfg!(not(windows)))
                 .build();
                 match built {
                     Ok(window) => {
@@ -2622,7 +2787,13 @@ fn forget_kindle_history(state: State<AppState>) -> Result<(), String> {
 /// and each pop-out are covered by the same rule.
 fn navigation_guard<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
     tauri::plugin::Builder::new("envy-navigation-guard")
-        .on_navigation(|_webview, url| navigation_allowed(url))
+        .on_navigation(|_webview, url| {
+            let ok = navigation_allowed(url);
+            if !ok {
+                runtime_log(&format!("nav DENIED {url}"));
+            }
+            ok
+        })
         .build()
 }
 
@@ -2639,22 +2810,45 @@ fn navigation_allowed(url: &tauri::Url) -> bool {
         // `tauri.localhost` custom-protocol host elsewhere.
         "tauri" => host == "localhost",
         "http" | "https" => {
+            // wry serves the app as `https://tauri.localhost/`; IPC is
+            // `ipc.localhost`. Anything else under `.localhost` is still this
+            // machine — a remote page cannot mint that suffix.
             host == "tauri.localhost"
-                // `npm run tauri dev` serves from Vite — devUrl in
-                // tauri.conf.json.
-                || (cfg!(debug_assertions) && host == "localhost" && url.port() == Some(1420))
+                || host == "ipc.localhost"
+                || host.ends_with(".localhost")
+                // Vite's dev server. `cfg(dev)` is what `tauri dev` sets;
+                // `debug_assertions` covers a plain `cargo build` of the
+                // debug profile. A release `cargo build` must not follow
+                // this URL — nothing is listening, and denying it used to
+                // leave the webview on about:blank.
+                || ((cfg!(dev) || cfg!(debug_assertions))
+                    && host == "localhost"
+                    && url.port() == Some(1420))
         }
-        // WebKitGTK loads a blank page before the real one.
-        "about" => url.path() == "blank",
+        // WebKitGTK and WebView2 both start on about:blank. The path is
+        // "blank" in the url crate, but some engines send "/" or empty.
+        "about" => {
+            let path = url.path().trim_start_matches('/');
+            path.is_empty() || path == "blank"
+        }
         _ => false,
     }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    install_panic_log();
+    runtime_log("run()");
     let builder = tauri::Builder::default()
         .plugin(navigation_guard())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init());
     // Checks the endpoint in tauri.conf.json and verifies whatever it finds
     // against the public key compiled in beside it. That key is why this has
@@ -2662,10 +2856,11 @@ pub fn run() {
     // shipped without it has nothing to verify an update with, so it can
     // never update itself — only a manual reinstall fixes it.
     //
-    // Windows only. The plugin's config requires a `pubkey`, and a Linux build
-    // has no release channel to point one at (PLAN.md, Phase 6).
-    #[cfg(windows)]
-    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    // Do not register tauri-plugin-updater until `plugins.updater` (pubkey +
+    // endpoints) is in tauri.conf.json. The plugin panics at launch if that
+    // object is missing. Check for Updates still runs; without the plugin it
+    // reports that updates are not set up yet.
+
     builder
         // The window comes back the size and place it was left. macOS gives a
         // WindowGroup this for free through AppKit's state restoration, which is
@@ -2695,6 +2890,15 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
+        .on_page_load(|window, payload| {
+            if window.label() == "main"
+                && matches!(payload.event(), tauri::webview::PageLoadEvent::Finished)
+            {
+                runtime_log(&format!("page-load finished url={}", payload.url()));
+                #[cfg(windows)]
+                boot_windows::dismiss();
+            }
+        })
         .setup(|app| {
             // Before anything reads a setting: create ~/.config/envy if it is
             // missing and fold the two files Rust used to keep its own state
@@ -2712,33 +2916,21 @@ pub fn run() {
             // plugged in — so a failure to open it falls back to the default
             // rather than refusing to start. The default itself is created on
             // demand by `open`, so it can't fail the same way.
+            //
+            // The first scan of a large Index is done on a background thread.
+            // `setup` must return in milliseconds: it runs on the UI thread,
+            // and holding it for the walk left the window unresponsive until
+            // every file was read.
             let mut dir = persisted_index_directory(app.handle());
-            let store = match NoteStore::open(&dir, false) {
+            let include_subfolders = config::include_subfolders();
+            let store = match NoteStore::open_unscanned(&dir, include_subfolders) {
                 Ok(store) => store,
                 Err(_) => {
                     dir = default_index_directory();
                     save_index_directory(app.handle(), &dir);
-                    NoteStore::open(&dir, false)?
+                    NoteStore::open_unscanned(&dir, include_subfolders)?
                 }
             };
-            // A brand-new Index gets a welcome note, so the first launch isn't
-            // an empty window with no hint of what to type. Writing it is the
-            // only thing here that changes what a scan would find, so it is
-            // also the only thing that costs a second read of the folder —
-            // opening the store twice unconditionally meant every launch paid
-            // the whole scan twice.
-            let mut store = store;
-            if store.notes().is_empty() {
-                let welcome = dir.join("Welcome to Envy.md");
-                if !welcome.exists() {
-                    std::fs::write(&welcome, WELCOME_NOTE)?;
-                    store.reload();
-                }
-            }
-            seed_sample_templates_if_needed(app.handle(), &dir);
-
-            // No launch update check on Linux: releases come through pacman,
-            // and `run_update_check` only ever runs from Check Now or the tray.
 
             let suppress_until = Arc::new(Mutex::new(Instant::now()));
 
@@ -2758,6 +2950,9 @@ pub fn run() {
                 let Some(state) = handle.try_state::<AppState>() else {
                     return;
                 };
+                if !state.index_ready.load(Ordering::Relaxed) {
+                    return;
+                }
                 state.store.lock().unwrap().reload_paths(paths);
                 // The frontend re-runs its query rather than being handed
                 // results, so a reload can't clobber whatever the user has
@@ -2774,15 +2969,19 @@ pub fn run() {
                 global_shortcuts: Mutex::new(std::collections::HashMap::new()),
                 template_date_format: Mutex::new("yyyy-MM-dd".to_string()),
                 popouts: Mutex::new(std::collections::HashMap::new()),
+                index_ready: AtomicBool::new(false),
             });
 
+            spawn_index_load(app.handle().clone(), dir);
+            runtime_log("store opening in background");
             setup_global_hotkey(app.handle())?;
             // Seeded from `[shortcuts]` so a chord set in the config works
             // from the moment the app is up. The frontend calls
             // `set_global_shortcuts` again once it has read its own settings,
             // which lands on the same four bindings.
             register_global_shortcuts(app.handle(), config::global_shortcuts());
-            tray::setup(app.handle())?;
+            runtime_log("hotkeys ready");
+            #[cfg(target_os = "linux")]
             control::serve(app.handle());
             // Re-assert the remembered on-top state now the window exists.
             apply_keep_on_top(app.handle(), persisted_keep_on_top(app.handle()));
@@ -2791,6 +2990,7 @@ pub fn run() {
             // Edits to config.md and themes/ made anywhere else land as
             // `config-changed` / `themes-changed`.
             config::spawn_watcher(app.handle().clone());
+            runtime_log("setup ok");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -2873,8 +3073,177 @@ pub fn run() {
             config::theme_read_text,
             config::theme_write_text,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // Main and pinned hide to the tray; pop-outs are real windows
+                // and should close. Without this, the last hide also quits.
+                let label = window.label();
+                if label == "main" || label == PINNED_WINDOW {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|app, event| {
+            match event {
+                tauri::RunEvent::Ready => {
+                    ensure_main_visible(app);
+                    #[cfg(windows)]
+                    boot_windows::dismiss();
+                    schedule_tray(app);
+                }
+                tauri::RunEvent::ExitRequested { api, code, .. } => {
+                    runtime_log(&format!("ExitRequested code={code:?}"));
+                    // None: last window hid. Some: tray Quit / app.exit(code).
+                    if code.is_none() {
+                        api.prevent_exit();
+                    }
+                }
+                tauri::RunEvent::WindowEvent { label, event, .. } => match event {
+                    tauri::WindowEvent::Destroyed => runtime_log(&format!("Destroyed {label}")),
+                    tauri::WindowEvent::Focused(true) if label == "main" => {
+                        ensure_tray(app);
+                    }
+                    _ => {}
+                },
+                _ => {}
+            }
+        });
+}
+
+fn spawn_index_load(app: tauri::AppHandle, dir: PathBuf) {
+    std::thread::spawn(move || {
+        let started = Instant::now();
+        runtime_log("index scan start");
+        let include = config::include_subfolders();
+        let mut loaded = match NoteStore::open(&dir, include) {
+            Ok(store) => store,
+            Err(e) => {
+                runtime_log(&format!("index scan failed: {e}"));
+                return;
+            }
+        };
+        if loaded.notes().is_empty() {
+            let welcome = dir.join("Welcome to Envy.md");
+            if !welcome.exists() {
+                if std::fs::write(&welcome, WELCOME_NOTE).is_ok() {
+                    loaded.reload();
+                }
+            }
+        }
+        seed_sample_templates_if_needed(&app, &dir);
+        let Some(state) = app.try_state::<AppState>() else {
+            return;
+        };
+        {
+            let mut guard = state.store.lock().unwrap();
+            if guard.notes().is_empty() {
+                *guard = loaded;
+            } else {
+                // A note was created while we scanned; re-read disk so it
+                // is not overwritten by a walk that started earlier.
+                guard.reload();
+            }
+        }
+        state.index_ready.store(true, Ordering::Relaxed);
+        runtime_log(&format!(
+            "index scan done in {}ms ({} notes)",
+            started.elapsed().as_millis(),
+            state.store.lock().unwrap().notes().len()
+        ));
+        let _ = app.emit("index-changed", ());
+    });
+}
+
+fn ensure_tray(app: &tauri::AppHandle) {
+    static STARTED: AtomicBool = AtomicBool::new(false);
+    if STARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    // Timed because this runs on the UI thread, which also serves the
+    // webview's protocol and IPC: anything slow here is a blank window.
+    let started = Instant::now();
+    match tray::setup(app) {
+        Ok(()) => runtime_log(&format!("tray ready in {}ms", started.elapsed().as_millis())),
+        Err(e) => runtime_log(&format!("tray setup failed: {e}")),
+    }
+}
+
+fn schedule_tray(app: &tauri::AppHandle) {
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(300));
+        let handle2 = handle.clone();
+        if let Err(e) = handle.run_on_main_thread(move || ensure_tray(&handle2)) {
+            runtime_log(&format!("tray schedule failed: {e}"));
+        }
+    });
+}
+
+fn ensure_main_visible(app: &tauri::AppHandle) {
+    runtime_log("Ready");
+    let Some(w) = app.get_webview_window("main") else {
+        runtime_log("Ready: no main window");
+        return;
+    };
+    let _ = w.show();
+    let _ = w.unminimize();
+    if let Ok(size) = w.inner_size() {
+        runtime_log(&format!("main physical={}x{}", size.width, size.height));
+        if size.width < 400 || size.height < 300 {
+            let _ = w.set_size(tauri::LogicalSize::new(800.0, 600.0));
+            let _ = w.center();
+        }
+    }
+    if let Ok(url) = w.url() {
+        runtime_log(&format!("main url={url}"));
+    }
+    let _ = w.set_focus();
+}
+
+pub(crate) fn runtime_log(msg: &str) {
+    let dir = dirs::config_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("envy");
+    let _ = std::fs::create_dir_all(&dir);
+    let line = format!(
+        "{} {}\n",
+        chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+        msg
+    );
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("runtime.log"))
+    {
+        use std::io::Write;
+        let _ = f.write_all(line.as_bytes());
+    }
+}
+
+fn install_panic_log() {
+    std::panic::set_hook(Box::new(|info| {
+        let loc = info
+            .location()
+            .map(|l| format!("{}:{}", l.file(), l.line()))
+            .unwrap_or_else(|| "unknown".into());
+        let msg = if let Some(s) = info.payload().downcast_ref::<&str>() {
+            (*s).to_string()
+        } else if let Some(s) = info.payload().downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "Box<dyn Any>".into()
+        };
+        runtime_log(&format!("panic at {loc}: {msg}"));
+        let dir = dirs::config_dir()
+            .unwrap_or_else(std::env::temp_dir)
+            .join("envy")
+            .join("runtime.log");
+        let _ = std::fs::File::options().append(true).open(dir).and_then(|f| f.sync_all());
+        eprintln!("panic at {loc}: {msg}");
+    }));
 }
 
 /// The starter templates seeded into Templates/ on first launch, transcribed

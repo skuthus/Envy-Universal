@@ -2,6 +2,9 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      if (/Windows/i.test(navigator.userAgent)) document.documentElement.classList.add('windows')
+    </script>
     <link rel="stylesheet" href="/src/styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Envy</title>
@@ -9,14 +12,21 @@
   </head>
 
   <body class="popout-window">
-    <input
-      id="popout-title"
-      type="text"
-      spellcheck="false"
-      autocomplete="off"
-      aria-label="Note title"
-      title="Click to rename. Links to this note are updated."
-    />
+    <div id="popout-title-bar">
+      <input
+        id="popout-title"
+        type="text"
+        spellcheck="false"
+        autocomplete="off"
+        aria-label="Note title"
+        title="Click to rename. Links to this note are updated."
+      />
+      <div class="window-controls" role="group" aria-label="Window">
+        <button type="button" data-win="minimize" title="Minimize" aria-label="Minimize"></button>
+        <button type="button" data-win="maximize" title="Maximize" aria-label="Maximize"></button>
+        <button type="button" data-win="close" title="Close" aria-label="Close"></button>
+      </div>
+    </div>
     <div id="popout-editor"></div>
 
     <!-- Shared with the main window: the app's own right-click menu (used by the
