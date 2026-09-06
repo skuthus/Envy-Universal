@@ -1,0 +1,26 @@
+# One line ending everywhere: LF in the repository and in the working tree, on
+# every platform. Without this, a Windows checkout with core.autocrlf=true (the
+# Git-for-Windows default) writes CRLF into the working tree while the index
+# holds LF, and three things break at once:
+#
+#   - scripts/gen-skill-docs.mjs --check generates LF and compares it against
+#     the CRLF file on disk, so check.sh reports every line of
+#     agents/skills/envy/*.md as changed while showing two identical lines
+#   - files sit permanently "modified" with an empty diff (src-tauri/Cargo.toml
+#     did exactly this)
+#   - a shell script committed with CRLF is not runnable on Linux
+#
+# eol=lf rather than plain text=auto: the latter still hands Windows CRLF in the
+# working tree, which is where the comparison happens.
+* text=auto eol=lf
+
+# Binary, so git must never translate or diff them as text.
+*.png binary
+*.ico binary
+*.icns binary
+*.jpg binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.zst binary
+*.tar.gz binary
