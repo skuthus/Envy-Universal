@@ -1109,8 +1109,13 @@ body.popout-window {
   gap: 0.75em;
   flex: none;
   padding: calc(2px * var(--envy-zoom-space) - 1px) var(--envy-inset);
-  /* A touch smaller than the note/list text — the status bar is chrome. */
-  font-size: calc(11px * var(--envy-zoom-space));
+  /* A touch smaller than the note/list text — the status bar is chrome: 10 to
+     their 12, kept as a ratio so Ctrl+= / Ctrl+- move the bar with the text
+     they annotate. It must not go back to `Npx * var(--envy-zoom-space)`:
+     that variable is spacing, clamped to [1, 1.6], so the footer stopped
+     growing at 160% and, zoomed out, stayed put while the note text shrank
+     past it — at the 0.6 floor an 11px status bar sat under 9px body text. */
+  font-size: calc(var(--envy-font-size) * 10 / 12);
   /* One fixed line: the bar must not grow because a button or a box-drawing
      glyph joined it, only when the window is too narrow and it wraps. */
   line-height: 1.6;
