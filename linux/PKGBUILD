@@ -13,7 +13,7 @@
 # at one, which the release script sets for its own check).
 
 pkgname=envynote
-_tauriver=1.0.2
+_tauriver=1.1.0
 # pacman forbids "-" in a version; the tag and tarball keep Tauri's spelling.
 pkgver=${_tauriver//-/}
 pkgrel=1

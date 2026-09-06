@@ -226,11 +226,36 @@ function renderAbout(version: string): HTMLElement {
 
 /// What changed in this build.
 ///
-/// The Linux port's own history, not the Mac's or Windows' — the ports have
-/// different pasts, and release notes for changes a user never experienced
-/// are noise. Kept in step with `linux/release-notes/<version>.md`, which
-/// the GitHub release and the website carry.
+/// This tree's own history — Linux and Windows now share it — and not the
+/// Mac's, which has a different past and whose release notes would describe
+/// changes a user here never experienced. Newest first. Kept in step with
+/// `linux/release-notes/<version>.md`, which the GitHub release and the
+/// website carry, in the same words.
 const WHATS_NEW: Array<{ title: string; body: string }> = [
+  {
+    title: 'Search that answers as you type',
+    body: 'Typing a query selects the first result and opens it, scrolled to the match, instead of waiting for Return. Clearing the box leaves whatever you had open alone.',
+  },
+  {
+    title: 'A window that comes up first and fills in after',
+    body: 'The window no longer waits for the whole Index to be read before it appears. On a large vault that is the difference between a blank pause and a list that arrives while you are still reading the first row.',
+  },
+  {
+    title: 'The list lines up',
+    body: 'A fleeting note’s row sat about four pixels lower than every row around it, which also knocked its amber dot off the column the folder dots keep. Rows now share one line, and folder dots and the fleeting dot sit in the same slot, at the same size, whichever side they are on.',
+  },
+  {
+    title: 'The status bar is chrome again',
+    body: 'It was very nearly the size of the note text, and it came loose from Ctrl+= / Ctrl+- at both ends — stuck at 160% zooming in, and left larger than the text it annotates zooming out. It is now a fixed 10 to the text’s 12 and follows the zoom all the way.',
+  },
+  {
+    title: 'Appearance away from Omarchy',
+    body: 'On a machine running Omarchy, nothing changes: Envy still follows the current Omarchy theme and its monospace font. Everywhere else the default is now the Envious dark face rather than the desktop’s light/dark preference, and the default monospace is JetBrains Mono.',
+  },
+  {
+    title: 'Envy runs on Windows',
+    body: 'Built from this same tree — the same note store, the same editor, the same config file shape. Hyprland, Omarchy, the Unix-socket summon and the bar widget stay Linux-only and are compiled out there. Nothing about your install changes.',
+  },
   {
     title: 'Split the editor',
     body: 'Ctrl+\\ splits the editor into two panes and closes the split again. Alt+\\ hops between them; Ctrl+Alt+\\ flips them between side by side and stacked, and the choice is remembered. Right-click a note in the list → Send to Split Pane opens it beside the one you are in. The same note open in both panes mirrors every edit.',
