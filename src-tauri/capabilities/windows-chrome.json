@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "windows-chrome",
+  "description": "The two window calls the Windows title-bar buttons make, and nothing else. Windows has no server-side decorations, so Envy draws its own minimize / maximize / close into the search bar (src/window-chrome.ts); close and hide are already in the default capability, and these two are not. Scoped with `platforms` so Linux never carries them: there the buttons are display:none and installWindowChrome() returns before it binds anything, so granting them would widen the IPC surface for code that cannot run. Only allow-toggle-maximize is asked for, not allow-maximize and allow-unmaximize — the button calls toggleMaximize(), and the other two are separate commands nothing here invokes.",
+  "platforms": ["windows"],
+  "windows": ["main", "pinned", "popout-*"],
+  "permissions": [
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize"
+  ]
+}

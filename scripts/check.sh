@@ -40,6 +40,13 @@ ALLOWED_PERMS=(
   "core:window:allow-close"
   "core:window:allow-hide"
   "core:window:allow-start-dragging"
+  # Windows only, and scoped to it in capabilities/windows-chrome.json: the
+  # title-bar buttons Envy draws itself, because Windows has no server-side
+  # decorations. toggle-maximize is the one the button calls; allow-maximize
+  # and allow-unmaximize are separate commands nothing invokes, so they are
+  # deliberately absent.
+  "core:window:allow-minimize"
+  "core:window:allow-toggle-maximize"
   "dialog:allow-open"
   "opener:allow-default-urls"
   "opener:allow-open-url"
