@@ -190,7 +190,10 @@ html.windows {
   flex: none;
   align-self: stretch;
   align-items: stretch;
-  margin: calc(-6px * var(--envy-zoom-space)) calc(-1 * var(--envy-inset)) calc(-2px * var(--envy-zoom-space)) 4px;
+  /* The left margin, on top of the bar's own gap, is the only chrome left to
+     grab in the main window — wide enough to aim at without crowding the
+     field or pushing the buttons off the edge. */
+  margin: calc(-6px * var(--envy-zoom-space)) calc(-1 * var(--envy-inset)) calc(-2px * var(--envy-zoom-space)) 16px;
 }
 html.windows .window-controls { display: flex; }
 .window-controls button {
