@@ -13,8 +13,14 @@ build is an unreleased one.
 ## What a release is
 
 - **Tag** `v<version>`, where `<version>` is `src-tauri/tauri.conf.json`'s
-  version (for example `1.0.0`). The Linux port has its own version line: it
+  version (for example `1.1.0`). One tag covers both platforms — they build
+  from the same commit and ship as one release. This line is its own: it
   tracks the Mac app's features, not its number.
+- **The Windows installer** `Envy_<version>_x64-setup.exe`, built on Windows
+  with `npm run tauri build` and uploaded to the same release by hand.
+  `release.sh` does not build it — the script is pacman/AppImage-shaped and
+  runs on Linux only, so the release is briefly Linux-only until the
+  installer is attached.
 - **Tarball** `envynote-<version>-x86_64.tar.gz`: the release binary, the
   desktop entry, icons, the Hyprland bind file and its summon script, the
   `agents/skills/envy` skill, the welcome guide, the README and LICENSE. This is what the pacman
@@ -32,7 +38,7 @@ build is an unreleased one.
 
 1. Bump the version in `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`
    and `_tauriver` in `linux/PKGBUILD`. Write the notes three times over, in
-   the same words: `linux/release-notes/<version>.md` (the GitHub release
+   the same words: `release-notes/<version>.md` (the GitHub release
    body), `WHATS_NEW` in `src/reference.ts` (the in-app What's New, shown
    once on the first launch of a new version), and the Omarchy section of
    the website's changelog. Update the version on the website's Omarchy

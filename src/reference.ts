@@ -1,8 +1,9 @@
 //! The reference surfaces: Markup, Shortcuts, Emoji, About.
 //!
-//! On the Mac these are separate windows reached from the menu bar. Windows
-//! has no menu bar here, so they share one overlay with tabs — the same
-//! content, one way in, and nothing permanently occupying the window.
+//! On the Mac these are separate windows reached from the menu bar. Neither
+//! Linux nor Windows has a menu bar here, so they share one overlay with tabs
+//! — the same content, one way in, and nothing permanently occupying the
+//! window.
 
 import markupGroups from './markup-help.json'
 import { buildEmojiGrid } from './emoji-grid'
@@ -216,7 +217,10 @@ function renderAbout(version: string): HTMLElement {
   mark.width = 88
   mark.height = 88
   root.append(mark)
-  root.append(el('h3', '', 'Envy for Windows'))
+  // Just "Envy". This read "Envy for Windows" on Linux too — the string came
+  // over with the port and nobody caught it, so a Linux user asking what they
+  // were running was told the wrong platform. One binary, one name.
+  root.append(el('h3', '', 'Envy'))
   root.append(el('p', 'reference-desc', 'A flat-file, frictionless note-taking application.'))
   root.append(el('p', 'reference-desc', `Version ${version}`))
   root.append(el('p', 'reference-desc', 'Made by Skyler Schoos'))
@@ -229,7 +233,7 @@ function renderAbout(version: string): HTMLElement {
 /// This tree's own history — Linux and Windows now share it — and not the
 /// Mac's, which has a different past and whose release notes would describe
 /// changes a user here never experienced. Newest first. Kept in step with
-/// `linux/release-notes/<version>.md`, which the GitHub release and the
+/// `release-notes/<version>.md`, which the GitHub release and the
 /// website carry, in the same words.
 const WHATS_NEW: Array<{ title: string; body: string }> = [
   {

@@ -94,9 +94,9 @@ fi
 echo "== publish"
 git tag -a "$TAG" -m "Envy $VERSION" 2>/dev/null || echo "   tag $TAG already exists"
 git push origin "$TAG"
-# Hand-written notes when linux/release-notes/<version>.md exists (the same
+# Hand-written notes when release-notes/<version>.md exists (the same
 # text the in-app What's New and the website carry), else GitHub's commit list.
-NOTES="linux/release-notes/$VERSION.md"
+NOTES="release-notes/$VERSION.md"
 if [ -f "$NOTES" ]; then
   gh release create "$TAG" "$TARBALL" "$TARBALL.sha256" ${APPIMAGE:+"$APPIMAGE"} \
     --title "Envy $VERSION" --notes-file "$NOTES"
