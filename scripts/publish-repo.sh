@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-# Publish the pacman repository: one GitHub release, tagged `repo`, holding
-# the current package and the database pacman reads. Users add
+# Publish the pacman repository: one GitHub release per architecture, holding
+# the current package and the database pacman reads. x86_64 keeps the original
+# `repo` tag; every other architecture gets `repo-<uname -m>` (so aarch64 is
+# `repo-aarch64`). One database cannot carry two architectures of the same
+# package version, hence the split. Users add
 #
 #   [envynote]
 #   SigLevel = Optional TrustAll
-#   Server = https://github.com/skuthus/Envy-Universal/releases/download/repo
+#   Server = https://github.com/skuthus/Envy-Universal/releases/download/repo           # x86_64
+#   Server = https://github.com/skuthus/Envy-Universal/releases/download/repo-aarch64   # aarch64
 #
-# to /etc/pacman.conf once, install with `pacman -Sy envynote`, and
+# (one line, for their machine) to /etc/pacman.conf once, install with `pacman -Sy envynote`, and
 # `omarchy update` keeps Envy current from then on — the AUR experience
 # without the AUR (whose registrations were closed when 1.0.0 shipped). release.sh runs this after the versioned release;
 # it can also run alone against the package already in target/release/dist.
@@ -23,11 +27,13 @@ DRY=0
 [ "${1:-}" = "--dry-run" ] && DRY=1
 
 REPO_NAME=envynote
-TAG=repo
+ARCH=$(uname -m)
+if [ "$ARCH" = x86_64 ]; then TAG=repo; else TAG="repo-$ARCH"; fi
 DIST=target/release/dist
 VERSION=$(python3 -c 'import json;print(json.load(open("src-tauri/tauri.conf.json"))["version"])')
 PKGVER=${VERSION//-/}
-PKG=$(ls "$DIST"/$REPO_NAME-"$PKGVER"-*-x86_64.pkg.tar.zst 2>/dev/null | sort -V | tail -1 || true)
+# makepkg.conf picks the compression (.zst on Arch, .xz on Arch Linux ARM).
+PKG=$(ls "$DIST"/$REPO_NAME-"$PKGVER"-*-"$ARCH".pkg.tar.* 2>/dev/null | grep -v "\.sig$" | sort -V | tail -1 || true)
 if [ -z "$PKG" ]; then
   echo "publish-repo: no $REPO_NAME-$PKGVER package in $DIST - run scripts/release.sh first" >&2
   exit 1
@@ -55,8 +61,8 @@ fi
 
 echo "== publish to the '$TAG' release"
 if ! gh release view "$TAG" >/dev/null 2>&1; then
-  gh release create "$TAG" --title "Package repository" --latest=false --notes \
-"A pacman repository, not a version. Add to /etc/pacman.conf:
+  gh release create "$TAG" --title "Package repository ($ARCH)" --latest=false --notes \
+"A pacman repository for $ARCH, not a version. Add to /etc/pacman.conf:
 
     [$REPO_NAME]
     SigLevel = Optional TrustAll
@@ -65,7 +71,7 @@ if ! gh release view "$TAG" >/dev/null 2>&1; then
 then \`sudo pacman -Sy $REPO_NAME\`; \`omarchy update\` (or \`pacman -Syu\` elsewhere) picks up new versions. The versioned releases carry the same package; this one only ever holds the newest."
 fi
 # Old packages go before the new database points at their replacement.
-for old in $(gh release view "$TAG" --json assets --jq '.assets[].name' | grep "^$REPO_NAME-.*\.pkg\.tar\.zst$" || true); do
+for old in $(gh release view "$TAG" --json assets --jq '.assets[].name' | grep "^$REPO_NAME-.*\.pkg\.tar\.[a-z]*$" || true); do
   [ "$old" = "$(basename "$PKG")" ] && continue
   gh release delete-asset "$TAG" "$old" --yes
   echo "   removed $old"

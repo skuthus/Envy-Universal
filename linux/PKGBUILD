@@ -1,8 +1,9 @@
 # Maintainer: Skyler Schoos
 #
 # envynote: Envy for Omarchy from the prebuilt release tarball that
-# scripts/release.sh publishes. The tarball is exactly the tree package()
-# copies below, so a release and this file move in lockstep: bump
+# scripts/release.sh publishes, one per architecture (x86_64 and aarch64,
+# each built natively on a machine of that kind). The tarball is exactly the
+# tree package() copies below, so a release and this file move in lockstep: bump
 # _tauriver, paste the sha256 the release script prints, `updpkgsums` if you
 # would rather, and publish (scripts/publish-repo.sh, or the AUR if it opens).
 #
@@ -18,7 +19,7 @@ _tauriver=1.1.0
 pkgver=${_tauriver//-/}
 pkgrel=1
 pkgdesc="Flat-file, frictionless note-taking that follows the Omarchy theme"
-arch=('x86_64')
+arch=('x86_64' 'aarch64')
 url="https://github.com/skuthus/Envy-Universal"
 license=('MIT')
 depends=('webkit2gtk-4.1' 'gtk3')
@@ -27,7 +28,7 @@ depends=('webkit2gtk-4.1' 'gtk3')
 optdepends=('hyprland: Ctrl+Alt+Return summon bind, tiled/floating settings, Keep on Top'
             'omarchy: bar widget and theme following')
 options=('!strip')
-_tarball="envynote-${_tauriver}-x86_64.tar.gz"
+_tarball="envynote-${_tauriver}-${CARCH}.tar.gz"
 if [ -n "${ENVY_LOCAL_TARBALL:-}" ]; then
   source=("${_tarball}::file://${ENVY_LOCAL_TARBALL}")
 else

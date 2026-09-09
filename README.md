@@ -15,12 +15,22 @@ Open source under the MIT license. The macOS original is a separate Swift app:
 ## Installing a release
 
 **Arch / Omarchy.** Envy ships from its own pacman repository (the AUR closed
-registrations when 1.0.0 shipped). Add to `/etc/pacman.conf` once:
+registrations when 1.0.0 shipped), for x86_64 and aarch64 (Apple silicon
+Macs running Asahi/Omarchy included). Add to `/etc/pacman.conf` once, with
+the `Server` line for your machine (`uname -m` says which):
 
 ```
 [envynote]
 SigLevel = Optional TrustAll
 Server = https://github.com/skuthus/Envy-Universal/releases/download/repo
+```
+
+or, on aarch64:
+
+```
+[envynote]
+SigLevel = Optional TrustAll
+Server = https://github.com/skuthus/Envy-Universal/releases/download/repo-aarch64
 ```
 
 then `sudo pacman -Sy envynote`. Updates arrive with `omarchy update` (or a
@@ -34,7 +44,8 @@ makepkg -si` from a clone.
 > `.../skuthus/Envy-Linux/releases/download/repo`. GitHub redirects that
 > permanently, so they keep working and need no edit.
 
-**Other Linux.** Run the AppImage from the GitHub release.
+**Other Linux.** Run the AppImage from the GitHub release (`amd64` for
+x86_64, `aarch64` for ARM).
 
 **Windows.** Run the NSIS installer from the GitHub release. WebView2 is
 already present on Windows 11 and is fetched by the installer otherwise.

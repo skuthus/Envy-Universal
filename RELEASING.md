@@ -21,17 +21,22 @@ build is an unreleased one.
   `release.sh` does not build it — the script is pacman/AppImage-shaped and
   runs on Linux only, so the release is briefly Linux-only until the
   installer is attached.
-- **Tarball** `envynote-<version>-x86_64.tar.gz`: the release binary, the
+- **Tarballs** `envynote-<version>-x86_64.tar.gz` and
+  `envynote-<version>-aarch64.tar.gz`: the release binary, the
   desktop entry, icons, the Hyprland bind file and its summon script, the
   `agents/skills/envy` skill, the welcome guide, the README and LICENSE. This is what the pacman
   package installs; `linux/PKGBUILD` copies exactly that tree into `/usr`, so
   the skill lands at `/usr/share/envy/agents/skills/envy` where Envy links it
-  into `~/.claude/skills` and `~/.agents/skills` at launch.
-- **AppImage**, for people not on Arch.
-- **The `repo` release**: a pacman repository holding the newest package
-  and its database (`envynote.db`, `envynote.files`), which is what
+  into `~/.claude/skills` and `~/.agents/skills` at launch. Each is built
+  natively on a machine of its architecture; there is no cross-compile.
+- **AppImages** (`amd64` and `aarch64`), for people not on Arch.
+- **The `repo` and `repo-aarch64` releases**: pacman repositories, one per
+  architecture, each holding the newest package and its database
+  (`envynote.db`, `envynote.files`), which is what
   `Server = https://github.com/skuthus/Envy-Universal/releases/download/repo`
-  in a user's `pacman.conf` reads. `scripts/publish-repo.sh` refreshes it
+  (or `.../repo-aarch64`) in a user's `pacman.conf` reads. One database cannot
+  hold two architectures of the same version, hence two.
+  `scripts/publish-repo.sh` refreshes the one for the machine it runs on
   from the package `release.sh` built; only the current version is kept.
 
 ## Cutting one
@@ -50,7 +55,11 @@ build is an unreleased one.
    GitHub release with `gh`, and refreshes the pacman repository
    (`scripts/publish-repo.sh`). Omarchy users then get the update through
    `omarchy update`.
-4. If the AUR is open again: in an AUR checkout of `envynote`, update
+4. On the other architecture's machine, check out the same tag and run
+   `scripts/release.sh` again. It finds the release and uploads that
+   machine's tarball, package and AppImage to it, then refreshes that
+   architecture's pacman repository.
+5. If the AUR is open again: in an AUR checkout of `envynote`, update
    `_tauriver` and paste the sha256 the script printed into `sha256sums`,
    regenerate `.SRCINFO` (`makepkg --printsrcinfo > .SRCINFO`), commit, push.
 

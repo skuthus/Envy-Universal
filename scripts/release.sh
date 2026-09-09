@@ -5,6 +5,11 @@
 #   scripts/release.sh            # everything, ending in `gh release create`
 #   scripts/release.sh --dry-run  # everything except the upload
 #
+# Linux assets are per architecture (`uname -m`: x86_64, aarch64) and built
+# natively, so a release is cut once per machine. The first run creates the
+# GitHub release; a run on the other architecture finds it and uploads its own
+# tarball, package and AppImage alongside.
+#
 # After the versioned release, scripts/publish-repo.sh refreshes the pacman
 # repository (the `repo` release) so `pacman -Syu` picks the version up.
 #
@@ -19,9 +24,10 @@ DRY=0
 
 VERSION=$(python3 -c 'import json;print(json.load(open("src-tauri/tauri.conf.json"))["version"])')
 TAG="v$VERSION"
+ARCH=$(uname -m)
 NAME="envynote-$VERSION"
 OUT="target/release/dist"
-TARBALL="$OUT/$NAME-x86_64.tar.gz"
+TARBALL="$OUT/$NAME-$ARCH.tar.gz"
 
 if [ ! -f agents/skills/envy/SKILL.md ]; then
   echo "release: agents/skills/envy/SKILL.md is missing - the package installs it" >&2
@@ -71,6 +77,10 @@ if command -v makepkg >/dev/null; then
   grep -q '^usr/share/envy/agents/skills/envy/SKILL.md$' "$PKGDIR/files.txt" \
     || { echo "release: package lacks the envy agent skill" >&2; exit 1; }
   echo "   ok: $(basename "$PKG") ($(grep -c '^usr/' "$PKGDIR/files.txt") files under usr/)"
+  case "$PKG" in
+    *-"$ARCH".pkg.tar.*) ;;
+    *) echo "release: makepkg built $(basename "$PKG"), not an $ARCH package" >&2; exit 1 ;;
+  esac
   cp "$PKG" "$OUT/"
   rm -rf "$PKGDIR"
 else
@@ -80,7 +90,7 @@ fi
 APPIMAGE=$(ls target/release/bundle/appimage/*.AppImage 2>/dev/null | head -1 || true)
 
 echo
-echo "release $TAG"
+echo "release $TAG ($ARCH)"
 echo "  tarball  $TARBALL"
 echo "  sha256   $SHA"
 [ -n "$APPIMAGE" ] && echo "  appimage $APPIMAGE"
@@ -94,15 +104,21 @@ fi
 echo "== publish"
 git tag -a "$TAG" -m "Envy $VERSION" 2>/dev/null || echo "   tag $TAG already exists"
 git push origin "$TAG"
-# Hand-written notes when release-notes/<version>.md exists (the same
-# text the in-app What's New and the website carry), else GitHub's commit list.
-NOTES="release-notes/$VERSION.md"
-if [ -f "$NOTES" ]; then
-  gh release create "$TAG" "$TARBALL" "$TARBALL.sha256" ${APPIMAGE:+"$APPIMAGE"} \
-    --title "Envy $VERSION" --notes-file "$NOTES"
+if gh release view "$TAG" >/dev/null 2>&1; then
+  # The other architecture cut this release already; add this one's assets.
+  echo "   $TAG exists; uploading the $ARCH assets to it"
+  gh release upload "$TAG" --clobber "$TARBALL" "$TARBALL.sha256" ${APPIMAGE:+"$APPIMAGE"}
 else
-  gh release create "$TAG" "$TARBALL" "$TARBALL.sha256" ${APPIMAGE:+"$APPIMAGE"} \
-    --title "Envy $VERSION" --generate-notes
+  # Hand-written notes when release-notes/<version>.md exists (the same
+  # text the in-app What's New and the website carry), else GitHub's commit list.
+  NOTES="release-notes/$VERSION.md"
+  if [ -f "$NOTES" ]; then
+    gh release create "$TAG" "$TARBALL" "$TARBALL.sha256" ${APPIMAGE:+"$APPIMAGE"} \
+      --title "Envy $VERSION" --notes-file "$NOTES"
+  else
+    gh release create "$TAG" "$TARBALL" "$TARBALL.sha256" ${APPIMAGE:+"$APPIMAGE"} \
+      --title "Envy $VERSION" --generate-notes
+  fi
 fi
 echo "published: $(gh release view "$TAG" --json url --jq .url)"
 
