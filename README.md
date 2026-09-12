@@ -75,7 +75,11 @@ Change Location… points it elsewhere; the chosen path is the `vault` key in th
 config file below.
 
 **Summon.** `Ctrl+Alt+Enter` shows or hides Envy from any app. The tray/bar eye
-does the same on left click; right click opens the app menu.
+does the same on left click; right click opens the app menu. A floating Envy
+comes back where you left it, at the size you left it, on every summon and at
+the next launch, with nothing to configure: Envy keeps one window rule of its
+own in Hyprland (`envy-place`) that says where the window maps, so it appears
+in place rather than sliding there. A tiled Envy is the layout's to place.
 
 ## Checking it
 

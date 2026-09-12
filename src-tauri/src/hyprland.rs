@@ -139,6 +139,33 @@ mod tests {
         let text = "-- pcall(dofile, \"/usr/share/envy/hyprland-envy.lua\")\n";
         assert!(updated(text, true, &src()).is_some());
     }
+
+    #[test]
+    fn place_rule_names_the_window_and_the_spot() {
+        let g = Geometry { x: 1100, y: 300, w: 640, h: 520 };
+        let lua = place_rule_lua("Envy", Some(&g));
+        // One named rule, matched on class and exact title, floated, placed.
+        assert!(lua.starts_with("envy_place_rule = hl.window_rule({ name = \"envy-place\""));
+        assert!(lua.contains("class = \"envynote\""));
+        assert!(lua.contains("title = \"^Envy$\""));
+        assert!(lua.contains("float = true"));
+        assert!(lua.contains("move = \"1100 300\""));
+        assert!(lua.contains("size = \"640 520\""));
+        assert!(!lua.contains("center"));
+    }
+
+    #[test]
+    fn place_rule_without_a_spot_centres_a_default_size() {
+        let lua = place_rule_lua("Envy", None);
+        assert!(lua.contains("center = true"));
+        assert!(lua.contains("size = \"(monitor_w*0.35) (monitor_h*0.82)\""));
+        assert!(!lua.contains("move"));
+    }
+
+    #[test]
+    fn clearing_only_disables_a_rule_that_exists() {
+        assert_eq!(clear_rule_lua(), "if envy_place_rule then envy_place_rule:set_enabled(false) end");
+    }
 }
 
 // --- Floating ---------------------------------------------------------------
@@ -223,11 +250,74 @@ fn on_a_monitor(g: &Geometry) -> bool {
     })
 }
 
-/// Puts the window with this title back at `g` once Hyprland has it
-/// floating. A hidden window is unmapped, and a window shown again is a new
-/// client to Hyprland, placed fresh — so "where I left it" has to be
-/// re-applied on every show, not just at launch. Polls the way
-/// `float_when_mapped` does, since the float itself is still landing.
+// --- Placing a window before it maps -----------------------------------------
+// Hyprland decides where a new client goes from its window rules, at map
+// time. Moving the window afterwards works but is a second placement, and
+// Hyprland animates it: the window popped in where the rules put it and then
+// slid across the screen to where it belonged. A rule declared *before* the
+// show puts it there in the first place, with no slide.
+//
+// Rules can be declared at runtime through `hyprctl eval` — the Lua config's
+// `hl.window_rule` — and a rule declared again under the same name replaces
+// the earlier one, so Envy keeps exactly one, "envy-place", and rewrites it
+// whenever the place changes. It outlives the app: a fresh launch finds it
+// still there and maps straight into it.
+
+/// The GTK application class every Envy window carries.
+const APP_CLASS: &str = "envynote";
+/// The one rule Envy owns in Hyprland; the Lua global that holds its handle.
+const PLACE_RULE: &str = "envy_place_rule";
+
+/// The Lua that declares the placement rule for the window with this title:
+/// at `g` when there is one, else the first-run default — about a third of
+/// the screen wide, most of it tall, centred.
+pub fn place_rule_lua(title: &str, g: Option<&Geometry>) -> String {
+    let where_ = match g {
+        Some(g) => format!("move = \"{} {}\", size = \"{} {}\"", g.x, g.y, g.w, g.h),
+        None => "size = \"(monitor_w*0.35) (monitor_h*0.82)\", center = true".to_string(),
+    };
+    format!(
+        "{PLACE_RULE} = hl.window_rule({{ name = \"envy-place\", match = {{ class = \"{APP_CLASS}\", title = \"^{title}$\" }}, float = true, {where_} }})"
+    )
+}
+
+/// The Lua that withdraws the rule, for a window that is tiled.
+pub fn clear_rule_lua() -> String {
+    format!("if {PLACE_RULE} then {PLACE_RULE}:set_enabled(false) end")
+}
+
+/// Runs a snippet in Hyprland's Lua state. `false` when Hyprland is not this
+/// Lua-configured one (or is not there at all), which is the caller's cue
+/// to fall back to moving the window after it maps.
+fn eval(lua: &str) -> bool {
+    std::process::Command::new("hyprctl")
+        .arg("eval")
+        .arg(lua)
+        .output()
+        .map(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == "ok")
+        .unwrap_or(false)
+}
+
+/// Declares where the window with this title maps from now on. Returns
+/// whether Hyprland took the rule.
+pub fn set_place_rule(title: &str, g: Option<Geometry>) -> bool {
+    let g = g.filter(on_a_monitor);
+    eval(&place_rule_lua(title, g.as_ref()))
+}
+
+/// Withdraws the rule, so the layout places the window.
+pub fn clear_place_rule() {
+    let _ = eval(&clear_rule_lua());
+}
+
+/// Puts the window with this title at `g` once Hyprland has it floating, if
+/// it is not there already. The rule above normally does the placing before
+/// the map, and then there is nothing to do; this is the fallback for the
+/// times it could not — Hyprland restarted and lost the rule before Envy
+/// re-declared it, or a Hyprland without `eval`. A hidden window is
+/// unmapped and a window shown again is a new client, placed fresh, so this
+/// runs on every show, not just at launch. Polls the way `float_when_mapped`
+/// does, since the float itself is still landing.
 pub fn place_when_floating(title: String, g: Geometry) {
     if !on_a_monitor(&g) {
         return;
@@ -237,6 +327,9 @@ pub fn place_when_floating(title: String, g: Geometry) {
             std::thread::sleep(std::time::Duration::from_millis(100));
             if let Some(state) = window_state(&title) {
                 if state.floating {
+                    if geometry(&title) == Some(g) {
+                        return;
+                    }
                     let address = state.address;
                     dispatch_call(&format!(
                         "hl.dsp.window.resize({{ x = {}, y = {}, window = \"address:{address}\" }})",
@@ -306,12 +399,20 @@ pub fn set_pinned(title: &str, pinned: bool) -> bool {
 /// Applies the settings once the window is mapped — the moment Hyprland knows
 /// it — on the next main-loop turn, never inside the GTK signal itself.
 /// `floating` says whether the window should float; `pinned`, if given,
-/// whether it should then be kept on top. Both are read at map time, not
-/// now, so a window hidden and shown again follows the current setting.
-pub fn float_when_mapped(window: &tauri::WebviewWindow, floating: fn() -> bool, pinned: Option<fn() -> bool>) {
+/// whether it should then be kept on top; `place`, if given, where it
+/// belongs, checked once it floats and corrected if the placement rule did
+/// not get there first. All are read at map time, not now, so a window
+/// hidden and shown again follows the current setting.
+pub fn float_when_mapped(
+    window: &tauri::WebviewWindow,
+    floating: fn() -> bool,
+    pinned: Option<fn() -> bool>,
+    place: Option<fn(&AppHandle) -> Option<Geometry>>,
+) {
     use gtk::prelude::WidgetExt;
     let window = window.clone();
     let app = window.app_handle().clone();
+    let inner = app.clone();
     let _ = app.run_on_main_thread(move || {
         let Ok(gtk_window) = window.gtk_window() else { return };
         let title = window.title().unwrap_or_default();
@@ -321,6 +422,7 @@ pub fn float_when_mapped(window: &tauri::WebviewWindow, floating: fn() -> bool, 
         // away) does not keep a timer alive.
         let apply = move |title: String| {
             let attempts = std::cell::Cell::new(0u32);
+            let app = inner.clone();
             gtk::glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
                 attempts.set(attempts.get() + 1);
                 if set_floating(&title, floating()) {
@@ -328,6 +430,13 @@ pub fn float_when_mapped(window: &tauri::WebviewWindow, floating: fn() -> bool, 
                     // returns, so the pin sees the window as it now is.
                     if let Some(pinned) = pinned {
                         set_pinned(&title, pinned());
+                    }
+                    if let Some(place) = place {
+                        if floating() {
+                            if let Some(g) = place(&app) {
+                                place_when_floating(title.clone(), g);
+                            }
+                        }
                     }
                     gtk::glib::ControlFlow::Break
                 } else if attempts.get() >= 30 {

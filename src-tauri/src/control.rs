@@ -15,7 +15,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::tray::on_main;
-use crate::{toggle_pinned_window, toggle_window};
+use crate::{show_main_window, toggle_pinned_window, toggle_window};
 
 pub fn socket_path() -> Option<PathBuf> {
     std::env::var_os("XDG_RUNTIME_DIR").map(|d| PathBuf::from(d).join("envy-control.sock"))
@@ -56,9 +56,7 @@ pub fn serve(app: &AppHandle) {
 /// window has to exist and be visible before an editor can open in it.
 fn summon_with(app: &AppHandle, event: &str, payload: Option<String>) {
     let Some(w) = app.get_webview_window("main") else { return };
-    let _ = w.show();
-    let _ = w.unminimize();
-    let _ = w.set_focus();
+    show_main_window(&w);
     let _ = w.emit(event, payload);
 }
 
@@ -85,9 +83,7 @@ fn handle(app: &AppHandle, stream: UnixStream) {
         "show" => {
             on_main(app, |app| {
                 if let Some(w) = app.get_webview_window("main") {
-                    let _ = w.show();
-                    let _ = w.unminimize();
-                    let _ = w.set_focus();
+                    show_main_window(&w);
                 }
             });
             true

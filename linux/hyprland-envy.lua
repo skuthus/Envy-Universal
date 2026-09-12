@@ -17,12 +17,16 @@ local envy_summon = here .. "envy-summon.sh"
 
 -- Match on class AND title: pop-out notes and the pinned popover share the
 -- `envynote` class, and those should stay ordinary windows.
+--
+-- Only `float` here, deliberately. Where the window goes and how big it is
+-- are Envy's own rule, "envy-place", which it declares in Hyprland itself
+-- (`hyprctl eval`) and rewrites every time it hides: the window comes back
+-- where it was left, and on first run it is centred at about a third of the
+-- screen wide and most of it tall. A `size` or `center` written here would
+-- win over that rule — Hyprland lets the earlier rule have the last word on
+-- position — and the window would snap back to the middle on every summon.
 o.window({ class = "envynote", title = "^Envy$" }, {
   float = true,
-  -- The owner's chosen default: about a third of the screen wide and most
-  -- of it tall (507x739 on a 1440x900 display).
-  size = { "(monitor_w*0.35)", "(monitor_h*0.82)" },
-  center = true,
 })
 
 -- Omarchy's default window opacity (0.985 / 0.96) multiplies every glyph.

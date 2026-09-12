@@ -2,6 +2,7 @@
 //! of Envy's chrome, sitting in the existing search / title bars rather than
 //! a second OS title strip.
 
+import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 
 export type CloseMode = 'hide' | 'close'
@@ -89,7 +90,8 @@ export function installWindowChrome(opts?: {
     closeBtn.title = closeMode === 'hide' ? 'Hide Envy' : 'Close'
     closeBtn.setAttribute('aria-label', closeBtn.title)
     closeBtn.onclick = () => {
-      const action = closeMode === 'hide' ? win.hide() : win.close()
+      // Hiding goes through Rust so the window's place is remembered first.
+      const action = closeMode === 'hide' ? invoke('hide_main') : win.close()
       void action.catch((err) => console.error(err))
     }
   }

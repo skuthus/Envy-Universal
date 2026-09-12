@@ -44,8 +44,18 @@ mod hyprland {
     pub fn apply(_: bool) {}
     pub fn apply_floating(_: &AppHandle) {}
     pub fn apply_pinned(_: &AppHandle) {}
-    pub fn float_when_mapped(_: &WebviewWindow, _: fn() -> bool, _: Option<fn() -> bool>) {}
+    pub fn float_when_mapped(
+        _: &WebviewWindow,
+        _: fn() -> bool,
+        _: Option<fn() -> bool>,
+        _: Option<fn(&AppHandle) -> Option<Geometry>>,
+    ) {
+    }
     pub fn place_when_floating(_: String, _: Geometry) {}
+    pub fn set_place_rule(_: &str, _: Option<Geometry>) -> bool {
+        false
+    }
+    pub fn clear_place_rule() {}
     pub fn geometry(_: &str) -> Option<Geometry> {
         None
     }
@@ -1044,6 +1054,7 @@ pub(crate) fn apply_config_owned(app: &tauri::AppHandle) {
     apply_autostart(app);
     hyprland::apply(config::hyprland_bind());
     hyprland::apply_floating(app);
+    sync_place_rule(app);
     let on = config::keep_on_top();
     if KEEP_ON_TOP_APPLIED.swap(on, Ordering::Relaxed) != on {
         apply_keep_on_top(app, on);
@@ -2274,11 +2285,9 @@ pub(crate) fn toggle_window(window: &WebviewWindow) {
     let visible = window.is_visible().unwrap_or(false);
     let minimised = window.is_minimized().unwrap_or(false);
     if visible && !minimised {
-        let _ = window.hide();
+        hide_main_window(window);
     } else {
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
+        show_main_window(window);
         // Announces the summon rather than dictating what happens next. Where
         // focus lands is the "Keep focus where it was when summoned" setting,
         // which lives in the frontend, so this used to be an unconditional
@@ -2288,21 +2297,85 @@ pub(crate) fn toggle_window(window: &WebviewWindow) {
     }
 }
 
+/// The main window's title, which is also how Hyprland is asked about it.
+const MAIN_TITLE: &str = "Envy";
+
+/// Every way the main window is brought forward goes through here. On
+/// Hyprland a hidden window is unmapped and a shown one is a new client,
+/// placed by the compositor's rules: summon Envy, drag it into the corner,
+/// dismiss it, summon it again, and it was back in the middle of the screen.
+/// Now a floating window comes back at the place and size it had when it
+/// hid, out of the box — no bind file, no setting. The placing itself is
+/// Envy's rule in Hyprland (`sync_place_rule`), declared before the show so
+/// the window maps straight into place; the map hook installed by the tray
+/// checks it landed and corrects it if the rule was not there in time. A
+/// tiled window is the layout's to place. Windows keeps a hidden window's
+/// place itself.
+pub(crate) fn show_main_window(window: &WebviewWindow) {
+    let _ = window.show();
+    let _ = window.unminimize();
+    let _ = window.set_focus();
+}
+
+/// Every way the main window is dismissed goes through here, so where the
+/// user left it is written down before Hyprland forgets it.
+pub(crate) fn hide_main_window(window: &WebviewWindow) {
+    remember_main_geometry(window.app_handle());
+    let _ = window.hide();
+}
+
+/// The last place the main window was seen, for the map hook to check.
+pub(crate) fn saved_main_geometry(app: &tauri::AppHandle) -> Option<hyprland::Geometry> {
+    saved_geometry(app, MAIN_GEOMETRY)
+}
+
+/// Brings Envy's placement rule in Hyprland in line with the settings and
+/// the saved place: declared at the saved spot (or the first-run default)
+/// while the window floats, withdrawn while it is tiled. Run at launch,
+/// after every hide and whenever `system.tiled` changes.
+pub(crate) fn sync_place_rule(app: &tauri::AppHandle) {
+    if config::floating() {
+        hyprland::set_place_rule(MAIN_TITLE, saved_main_geometry(app));
+    } else {
+        hyprland::clear_place_rule();
+    }
+}
+
+/// The frontend asks for this instead of hiding the window itself — the
+/// focus-loss hide, the close button on Windows — for the same reason the
+/// pinned panel does: a hide that skips the remembering forgets the place.
+#[tauri::command]
+fn hide_main(app: tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        hide_main_window(&w);
+    }
+}
+
+pub(crate) fn remember_main_geometry(app: &tauri::AppHandle) {
+    remember_geometry(app, "main", MAIN_TITLE, MAIN_GEOMETRY);
+    sync_place_rule(app);
+}
+
 pub(crate) const PINNED_WINDOW: &str = "pinned";
 /// The panel's window title, which is also how Hyprland is asked about it.
 const PINNED_TITLE: &str = "Pinned note";
 
-/// Where the panel was last seen, so it can come back there. The Mac gets
+/// The files that hold where each window was last seen, in the config
+/// directory beside config.md.
+const MAIN_GEOMETRY: &str = "main-window.json";
+const PINNED_GEOMETRY: &str = "pinned-window.json";
+
+/// Where a window was last seen, so it can come back there. The Mac gets
 /// this for free from NSWindow's frame autosave; on Wayland a client cannot
-/// position itself, so the geometry is read from Hyprland when the panel
+/// position itself, so the geometry is read from Hyprland when the window
 /// hides (and at quit) and handed back to Hyprland when it shows.
-fn pinned_geometry_file(app: &tauri::AppHandle) -> Option<PathBuf> {
-    app.path().app_config_dir().ok().map(|d| d.join("pinned-window.json"))
+fn geometry_file(app: &tauri::AppHandle, name: &str) -> Option<PathBuf> {
+    app.path().app_config_dir().ok().map(|d| d.join(name))
 }
 
-pub(crate) fn remember_pinned_geometry(app: &tauri::AppHandle) {
-    let g = pinned_geometry_now(app);
-    let (Some(path), Some(g)) = (pinned_geometry_file(app), g) else {
+fn remember_geometry(app: &tauri::AppHandle, label: &str, title: &str, file: &str) {
+    let g = geometry_now(app, label, title);
+    let (Some(path), Some(g)) = (geometry_file(app, file), g) else {
         return;
     };
     if let Some(dir) = path.parent() {
@@ -2313,17 +2386,19 @@ pub(crate) fn remember_pinned_geometry(app: &tauri::AppHandle) {
     }
 }
 
-fn pinned_geometry_now(app: &tauri::AppHandle) -> Option<hyprland::Geometry> {
+fn geometry_now(app: &tauri::AppHandle, label: &str, title: &str) -> Option<hyprland::Geometry> {
     #[cfg(target_os = "linux")]
     {
-        // Hyprland answers this from the window title, so the handle is only
-        // the Windows arm's business — same shape as `control_send`.
-        let _ = app;
-        hyprland::geometry(PINNED_TITLE)
+        // Hyprland answers this from the window title, so the handle and
+        // label are only the Windows arm's business — same shape as
+        // `control_send`.
+        let _ = (app, label);
+        hyprland::geometry(title)
     }
     #[cfg(windows)]
     {
-        let w = app.get_webview_window(PINNED_WINDOW)?;
+        let _ = title;
+        let w = app.get_webview_window(label)?;
         let pos = w.outer_position().ok()?;
         let size = w.outer_size().ok()?;
         Some(hyprland::Geometry {
@@ -2335,23 +2410,32 @@ fn pinned_geometry_now(app: &tauri::AppHandle) -> Option<hyprland::Geometry> {
     }
 }
 
-fn saved_pinned_geometry(app: &tauri::AppHandle) -> Option<hyprland::Geometry> {
-    let text = std::fs::read_to_string(pinned_geometry_file(app)?).ok()?;
+fn saved_geometry(app: &tauri::AppHandle, file: &str) -> Option<hyprland::Geometry> {
+    let text = std::fs::read_to_string(geometry_file(app, file)?).ok()?;
     serde_json::from_str(&text).ok()
 }
 
-fn restore_pinned_geometry(app: &tauri::AppHandle, window: &WebviewWindow) {
-    let Some(g) = saved_pinned_geometry(app) else { return };
+fn restore_geometry(app: &tauri::AppHandle, window: &WebviewWindow, title: &str, file: &str) {
+    let Some(g) = saved_geometry(app, file) else { return };
     #[cfg(target_os = "linux")]
     {
         let _ = window;
-        hyprland::place_when_floating(PINNED_TITLE.to_string(), g);
+        hyprland::place_when_floating(title.to_string(), g);
     }
     #[cfg(windows)]
     {
+        let _ = title;
         let _ = window.set_position(tauri::PhysicalPosition::new(g.x as i32, g.y as i32));
         let _ = window.set_size(tauri::PhysicalSize::new(g.w as u32, g.h as u32));
     }
+}
+
+pub(crate) fn remember_pinned_geometry(app: &tauri::AppHandle) {
+    remember_geometry(app, PINNED_WINDOW, PINNED_TITLE, PINNED_GEOMETRY);
+}
+
+fn restore_pinned_geometry(app: &tauri::AppHandle, window: &WebviewWindow) {
+    restore_geometry(app, window, PINNED_TITLE, PINNED_GEOMETRY);
 }
 
 /// The panel asks for this just before it hides itself, so what is saved is
@@ -2385,9 +2469,7 @@ fn set_pinned_note(id: Option<String>, app: tauri::AppHandle, state: State<AppSt
 #[tauri::command]
 fn open_in_main_window(id: String, app: tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
-        let _ = w.show();
-        let _ = w.unminimize();
-        let _ = w.set_focus();
+        show_main_window(&w);
         let _ = w.emit("open-note", id);
     }
 }
@@ -2424,7 +2506,7 @@ pub(crate) fn show_pinned_window(app: &tauri::AppHandle) {
             // ignores; on Hyprland the panel is floated and pinned instead,
             // so it hangs above every workspace the way the builder intends,
             // and lands centred, a short trip from anywhere.
-            hyprland::float_when_mapped(&w, || true, Some(|| true));
+            hyprland::float_when_mapped(&w, || true, Some(|| true), None);
             restore_pinned_geometry(app, &w);
             tray::follow_window(app, &w)
         }
@@ -2549,7 +2631,7 @@ async fn pop_out_note(id: String, inner_size: Option<(f64, f64)>, app: tauri::Ap
                 .build();
                 match built {
                     Ok(window) => {
-                        hyprland::float_when_mapped(&window, config::popout_floating, None);
+                        hyprland::float_when_mapped(&window, config::popout_floating, None, None);
                         // Remember where the user drags the edges to, so the
                         // next pop-out this session opens the same size even
                         // when the caller passes none. Logical units, the same
@@ -2847,9 +2929,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
-                let _ = w.show();
-                let _ = w.unminimize();
-                let _ = w.set_focus();
+                show_main_window(&w);
             }
         }))
         .plugin(tauri_plugin_dialog::init());
@@ -2913,6 +2993,12 @@ pub fn run() {
             // The skill teaches agents how to edit that file; linking it is
             // best-effort and never overwrites what the user has there.
             config::install_skill();
+
+            // Where the main window maps: Envy's rule in Hyprland, declared
+            // before the window exists so the first show lands in place. It
+            // usually still holds from the last run; this covers a Hyprland
+            // that restarted since.
+            sync_place_rule(app.handle());
 
             // The Index the user last chose, or the default on a fresh install.
             // A saved path can go unreachable — a folder on a drive that isn't
@@ -3032,6 +3118,7 @@ pub fn run() {
             list_image_attachments,
             check_for_updates,
             remember_pinned_window,
+            hide_main,
             reveal_folder,
             set_index_directory,
             set_template_date_format,
@@ -3081,7 +3168,11 @@ pub fn run() {
                 // Main and pinned hide to the tray; pop-outs are real windows
                 // and should close. Without this, the last hide also quits.
                 let label = window.label();
-                if label == "main" || label == PINNED_WINDOW {
+                if label == "main" {
+                    api.prevent_close();
+                    remember_main_geometry(window.app_handle());
+                    let _ = window.hide();
+                } else if label == PINNED_WINDOW {
                     api.prevent_close();
                     let _ = window.hide();
                 }
@@ -3102,6 +3193,10 @@ pub fn run() {
                     // None: last window hid. Some: tray Quit / app.exit(code).
                     if code.is_none() {
                         api.prevent_exit();
+                    } else {
+                        // A quit from anywhere but the tray (the bar menu,
+                        // `envynote --quit`, a signal) keeps the place too.
+                        remember_main_geometry(app);
                     }
                 }
                 tauri::RunEvent::WindowEvent { label, event, .. } => match event {

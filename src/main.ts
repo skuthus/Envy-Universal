@@ -6760,7 +6760,9 @@ try {
     try {
       await new Promise((resolve) => setTimeout(resolve, 120))
       if (await anyEnvyWindowFocused()) return
-      await getCurrentWindow().hide()
+      // Through Rust, not `getCurrentWindow().hide()`: it notes where the
+      // window is first, so the next summon puts it back there.
+      await invoke('hide_main')
     } catch (err) {
       console.error('could not hide on focus loss', err)
     }

@@ -246,7 +246,8 @@ impl ksni::Tray for EnvyTray {
             StandardItem {
                 label: "Quit Envy".into(),
                 activate: Box::new(|tray: &mut Self| {
-                    // The panel may still be up; its place is worth keeping.
+                    // Either window may still be up; its place is worth keeping.
+                    crate::remember_main_geometry(&tray.app);
                     crate::remember_pinned_geometry(&tray.app);
                     tray.app.exit(0)
                 }),
@@ -270,9 +271,7 @@ pub(crate) fn on_main(app: &AppHandle, action: impl FnOnce(&AppHandle) + Send + 
 /// Brings the main window forward and hands the frontend an event to act on.
 fn summon(app: &AppHandle, event: &str) {
     if let Some(w) = app.get_webview_window("main") {
-        let _ = w.show();
-        let _ = w.unminimize();
-        let _ = w.set_focus();
+        crate::show_main_window(&w);
         let _ = w.emit(event, ());
     }
 }
@@ -307,7 +306,12 @@ pub fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 
     if let Some(w) = app.get_webview_window("main") {
         follow_window(app, &w);
-        crate::hyprland::float_when_mapped(&w, crate::config::floating, Some(crate::config::keep_on_top));
+        crate::hyprland::float_when_mapped(
+            &w,
+            crate::config::floating,
+            Some(crate::config::keep_on_top),
+            Some(crate::saved_main_geometry),
+        );
     }
     follow_hyprland(app);
     install_bar_widget(app);
