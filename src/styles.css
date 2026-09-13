@@ -2602,6 +2602,18 @@ body.popout-window {
    and pan the whole note. Overflow lives only on this wrap. The thumb is
    painted even without hover: the overlay-until-hover rule on `*` would hide
    the only way to read a long line. */
+/* Padding, not margin — see the note above .envy-md-table-wrap. The 1em above
+   and below the panel used to be its margin, which CodeMirror's height map
+   cannot see; with seven fences in a note, clicks near the bottom landed
+   seven lines low. The outer fence box carries that space as padding. */
+.cm-editor .envy-md-fence {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding: 1em 0;
+}
 .cm-editor .envy-md-pre-wrap {
   display: block;
   box-sizing: border-box;
@@ -2609,7 +2621,7 @@ body.popout-window {
   max-width: 100%;
   min-width: 0;
   contain: inline-size;
-  margin: 1em 0;
+  margin: 0;
   padding: 1em 1.25em;
   overflow-x: auto;
   overflow-y: hidden;

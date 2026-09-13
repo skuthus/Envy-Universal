@@ -2333,6 +2333,15 @@ class FenceWidget extends WidgetType {
     // A `div`, not `<pre>`: WebKit flattens `<pre>` inside CodeMirror's
     // contenteditable, which is why a real pre never kept its padding or
     // fill. The wrap is the panel; the inner div is `white-space: pre`.
+    // Two boxes: the outer `fence` holds the vertical spacing as *padding*,
+    // the inner `pre-wrap` is the painted panel. The spacing used to be a
+    // margin on the panel, and CodeMirror measures a block's height from its
+    // border box — a margin is space its height map never learns about, so
+    // every fence pushed the real text a line further below where the map
+    // thought it was, and clicks landed lower and lower down a note. Same
+    // rule as the table and image wraps (see styles.css).
+    const fence = document.createElement('div')
+    fence.className = 'envy-md-fence'
     const wrap = document.createElement('div')
     wrap.className = 'envy-md-pre-wrap'
     const pre = document.createElement('div')
@@ -2342,17 +2351,18 @@ class FenceWidget extends WidgetType {
     code.textContent = this.block.body
     pre.append(code)
     wrap.append(pre)
+    fence.append(wrap)
     // Pin the panel to the editor's content width so a long line cannot
     // stretch `.cm-content` and turn the whole note into a horizontal
     // scroller. ResizeObserver keeps it honest when the pane is dragged.
     const fit = () => {
       const w = view.contentDOM.clientWidth
-      if (w > 0) wrap.style.width = `${w}px`
+      if (w > 0) fence.style.width = `${w}px`
     }
     fit()
     const ro = new ResizeObserver(fit)
     ro.observe(view.contentDOM)
-    fenceFitters.set(wrap, ro)
+    fenceFitters.set(fence, ro)
     wrap.onmousedown = (e) => {
       const t = e.currentTarget as HTMLElement
       // Clicks on the overflow scrollbar have to scroll, not collapse the
@@ -2362,7 +2372,15 @@ class FenceWidget extends WidgetType {
       view.dispatch({ selection: { anchor: this.block.bodyFrom }, scrollIntoView: true })
       view.focus()
     }
-    return wrap
+    // A click on the spacing above or below the panel is the same intent as
+    // a click on the panel: open the fence for editing.
+    fence.onmousedown = (e) => {
+      if (e.target !== fence) return
+      e.preventDefault()
+      view.dispatch({ selection: { anchor: this.block.bodyFrom }, scrollIntoView: true })
+      view.focus()
+    }
+    return fence
   }
   destroy(dom: HTMLElement) {
     const ro = fenceFitters.get(dom)
