@@ -1,5 +1,5 @@
-import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate, WidgetType } from '@codemirror/view'
-import { EditorState, Facet, Range, StateEffect, StateField, Text } from '@codemirror/state'
+import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate, WidgetType, keymap } from '@codemirror/view'
+import { EditorSelection, EditorState, Facet, Prec, Range, StateEffect, StateField, Text } from '@codemirror/state'
 import { invoke } from '@tauri-apps/api/core'
 import { createMiniNoteEditor, type MiniNoteEditor } from './mininote'
 import { resolveDueToken, urgencyFor } from './due'
@@ -2548,6 +2548,67 @@ const stylerPlugin = ViewPlugin.fromClass(
 /// The whole styling layer: inline marks from a view plugin (viewport-scoped,
 /// because that's where the cost is) and embed/table/fence blocks from state
 /// fields (because CodeMirror requires it).
+// --- Up and Down mean one line -----------------------------------------------
+// CodeMirror moves the caret vertically by screen position: it looks a line's
+// height below (or above) the caret and takes whatever text is there. A
+// rendered fence or table is one block widget, so that probe lands on the
+// widget and the caret is put down on the far side of it — and because a
+// block's replaced range runs to the start of the line after it, an empty
+// line there has no box of its own and is folded into the block, so it is
+// skipped too. From the line under a fence, Up went to the line above it:
+// seven lines in one press. This keeps every press to the adjacent logical
+// line. Into a fence, which then opens for editing (the styler reveals a
+// block the selection is in); over a table, which keeps its own editing UI,
+// to the line just past it. Movement within a wrapped line's own rows, and
+// Shift-selection, are left to CodeMirror.
+
+/// The adjacent line in the direction of travel, stepping over a rendered
+/// table but into a rendered fence. `null` at the document's edge.
+function adjacentLine(state: EditorState, line: number, dir: 1 | -1): number | null {
+  const wanted = line + dir
+  if (wanted < 1 || wanted > state.doc.lines) return null
+  const pos = state.doc.line(wanted).from
+  for (const table of blocksFor(state.doc).tables) {
+    if (pos < table.from || pos >= table.to || !shouldReplaceRange(state, table.from, table.to)) continue
+    if (dir > 0) {
+      // A table that runs to the end of the document has nothing past it.
+      if (table.to >= state.doc.length) return null
+      return state.doc.lineAt(table.to).number
+    }
+    const before = state.doc.lineAt(table.from).number - 1
+    return before < 1 ? null : before
+  }
+  return wanted
+}
+
+function moveOneLine(view: EditorView, dir: 1 | -1): boolean {
+  const cur = view.state.selection.main
+  if (!cur.empty) return false
+  const line = view.state.doc.lineAt(cur.head)
+  const moved = view.moveVertically(cur, dir > 0)
+  const target = view.state.doc.lineAt(moved.head).number
+  // Still on this line (a wrapped row, or the document's edge), or exactly
+  // one line over: CodeMirror did the right thing.
+  if (dir > 0 ? target <= line.number + 1 : target >= line.number - 1) return false
+  const wanted = adjacentLine(view.state, line.number, dir)
+  if (wanted === null) return false
+  const dest = view.state.doc.line(wanted)
+  const col = Math.min(cur.head - line.from, dest.length)
+  view.dispatch({
+    selection: EditorSelection.cursor(dest.from + col),
+    scrollIntoView: true,
+    userEvent: 'select',
+  })
+  return true
+}
+
+const oneLineArrows = Prec.high(
+  keymap.of([
+    { key: 'ArrowDown', run: (v) => moveOneLine(v, 1) },
+    { key: 'ArrowUp', run: (v) => moveOneLine(v, -1) },
+  ]),
+)
+
 export const envyStyler = [
   editorFocusedField,
   EditorView.focusChangeEffect.of((_state, focusing) => setEditorFocused.of(focusing)),
@@ -2555,4 +2616,5 @@ export const envyStyler = [
   tableDecorations,
   fenceDecorations,
   stylerPlugin,
+  oneLineArrows,
 ]
