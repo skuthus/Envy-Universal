@@ -45,6 +45,9 @@ notify.workspace = true
 # version Tauri already links, for the window map/unmap signals the eye follows.
 ksni = { version = "0.3", features = ["blocking"] }
 gtk = "0.18"
+# Same crate Tauri already links; used to turn off WebKit's ~60 fps page-update
+# cap so scrolling can follow the display (see linux_refresh.rs).
+webkit2gtk = { version = "2", features = ["v2_40"] }
 
 [dev-dependencies]
 # Only for the test that reads this file's own source and refuses a new command

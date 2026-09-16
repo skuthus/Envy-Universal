@@ -22,6 +22,8 @@ mod hyprland;
 #[cfg(target_os = "linux")]
 mod kindle_mtp;
 #[cfg(target_os = "linux")]
+mod linux_refresh;
+#[cfg(target_os = "linux")]
 mod omarchy;
 pub mod themes;
 mod tray;
@@ -2913,6 +2915,20 @@ fn navigation_guard<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
         .build()
 }
 
+/// Same trick as the navigation guard: the main window never goes through a
+/// builder here, so the WebKit frame-pacing flag has to be flipped from a
+/// plugin hook that sees every webview (main, pinned, pop-out).
+fn display_refresh_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    let builder = tauri::plugin::Builder::new("envy-display-refresh");
+    #[cfg(target_os = "linux")]
+    let builder = builder.on_webview_ready(|webview| {
+        let _ = webview.with_webview(|w| {
+            linux_refresh::unlock(&w.inner());
+        });
+    });
+    builder.build()
+}
+
 /// The whole of the rule above, as a plain function of the URL.
 ///
 /// Lifted out of the closure so it can be tested without a webview: the cost
@@ -2957,6 +2973,7 @@ pub fn run() {
     runtime_log("run()");
     let builder = tauri::Builder::default()
         .plugin(navigation_guard())
+        .plugin(display_refresh_plugin())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
