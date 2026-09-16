@@ -237,68 +237,28 @@ function renderAbout(version: string): HTMLElement {
 /// website carry, in the same words.
 const WHATS_NEW: Array<{ title: string; body: string }> = [
   {
-    title: 'Search that answers as you type',
-    body: 'Typing a query selects the first result and opens it, scrolled to the match, instead of waiting for Return. Clearing the box leaves whatever you had open alone.',
+    title: 'The window comes back where you left it',
+    body: 'On Hyprland a hidden window is unmapped and a shown one is placed fresh, so summoning Envy after dragging it into a corner put it back in the middle of the screen. Every hide now writes the window’s place beside the config, and Hyprland is told where to map it before it shows, so it comes back in place without a slide. A cold launch lands there too.',
   },
   {
-    title: 'A window that comes up first and fills in after',
-    body: 'The window no longer waits for the whole Index to be read before it appears. On a large vault that is the difference between a blank pause and a list that arrives while you are still reading the first row.',
+    title: 'Clicks land on the line you clicked',
+    body: 'Every fenced code block above a click pushed the caret a line’s worth below the line you meant; in a note with seven fences it landed five lines low by the bottom. The fence’s spacing is now measured with it, and a click lands where it was aimed.',
   },
   {
-    title: 'The list lines up',
-    body: 'A fleeting note’s row sat about four pixels lower than every row around it, which also knocked its amber dot off the column the folder dots keep. Rows now share one line, and folder dots and the fleeting dot sit in the same slot, at the same size, whichever side they are on.',
+    title: 'Up and Down move one line, into a code block rather than over it',
+    body: 'From the line under a code block, Up jumped to the line above the block, seven lines in one press, and Down from above it leapt to the second line below. Each press now moves to the adjacent line: into a fence, which opens for editing, and over a table, which keeps its own editing, to the line just past it.',
   },
   {
-    title: 'The status bar is chrome again',
-    body: 'It was very nearly the size of the note text, and it came loose from Ctrl+= / Ctrl+- at both ends — stuck at 160% zooming in, and left larger than the text it annotates zooming out. It is now a fixed 10 to the text’s 12 and follows the zoom all the way.',
+    title: 'Packaged for aarch64',
+    body: 'The pacman repository comes in two architectures: repo for x86_64 and repo-aarch64 for ARM (the README has the second Server line). The tarball and AppImage are built for both.',
   },
   {
-    title: 'Appearance away from Omarchy',
-    body: 'On a machine running Omarchy, nothing changes: Envy still follows the current Omarchy theme and its monospace font. Everywhere else the default is now the Envious dark face rather than the desktop’s light/dark preference, and the default monospace is JetBrains Mono.',
+    title: 'Windows',
+    body: 'Hide on focus loss works: with the hide-on-focus-loss setting on, bringing another app to the front hides Envy. A click on the tray icon toggles the window and the eye follows it; the click used to hide and re-show in one go, and the eye stayed open after a hide. The tray eye is the same drawing as the Linux bar icon. Settings no longer shows the Hyprland-only “tiled” rows.',
   },
   {
-    title: 'Envy runs on Windows',
-    body: 'Built from this same tree — the same note store, the same editor, the same config file shape. Hyprland, Omarchy, the Unix-socket summon and the bar widget stay Linux-only and are compiled out there. Nothing about your install changes.',
-  },
-  {
-    title: 'Split the editor',
-    body: 'Ctrl+\\ splits the editor into two panes and closes the split again. Alt+\\ hops between them; Ctrl+Alt+\\ flips them between side by side and stacked, and the choice is remembered. Right-click a note in the list → Send to Split Pane opens it beside the one you are in. The same note open in both panes mirrors every edit.',
-  },
-  {
-    title: 'A divider you can drag',
-    body: 'The line between the panes drags. Double-click it for an even split, or focus it and use the arrow keys along it. Each direction keeps its own share.',
-  },
-  {
-    title: 'A solid eye in the bar',
-    body: 'The bar eye is now solid in the bar’s text colour with the iris a see-through hole, drawn at the size of the shell’s own icons.',
-  },
-  {
-    title: 'The pinned panel stays put',
-    body: 'The pinned-note panel no longer vanishes while the pointer travels to it from the bar, and it reopens where you last put it.',
-  },
-  {
-    title: 'Return creates unless the title exists',
-    body: 'Return in the search box opens the note titled exactly what you typed, and otherwise creates one — even when other notes match the words, the Mac’s rule. A “Press ⏎ to create …” line under the list says which it is about to do. Arrow down to open a partial match instead.',
-  },
-  {
-    title: 'Escape jumps to search',
-    body: 'From anywhere, Escape closes whatever is open one layer at a time and then lands in the search box. Ctrl+L is still there as a remap in Settings → Shortcuts.',
-  },
-  {
-    title: 'Check for Updates means it',
-    body: 'Settings → Updates → Check Now, and the bar icon’s menu, ask GitHub for the newest release. If it is newer, a dialog offers to open a terminal with the update command. Envy never checks on its own.',
-  },
-  {
-    title: 'Fonts you can actually pick',
-    body: 'Font family is a dropdown of every installed family, monospace first. A new OpenType features setting takes tags like ss01 for any font, and Cascadia’s cursive italics switch on by themselves.',
-  },
-  {
-    title: 'Kindles that don’t mount',
-    body: 'Kindles that connect over MTP — every recent Paperwhite — are detected and read directly. No more copying My Clippings.txt by hand.',
-  },
-  {
-    title: 'Fixes',
-    body: 'A task’s checkbox sits one space from its text and the strike covers the words alone. A wrapped quote keeps its rule down every row. A dropped image lands at the caret on a scaled display. Renaming an image selects the name, not the extension. The date column fits the dates on screen. Insets and paddings scale with the zoom, up to 160%. American spelling throughout.',
+    title: 'Under the hood',
+    body: 'rustls, on the updater’s HTTPS path, is updated past RUSTSEC-2026-0285.',
   },
 ]
 
