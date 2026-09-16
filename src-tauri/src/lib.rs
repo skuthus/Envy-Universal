@@ -2286,6 +2286,7 @@ pub(crate) fn create_and_pin(app: &tauri::AppHandle, template_path: Option<&str>
 pub(crate) fn toggle_window(window: &WebviewWindow) {
     let visible = window.is_visible().unwrap_or(false);
     let minimised = window.is_minimized().unwrap_or(false);
+    runtime_log(&format!("toggle main: visible={visible} minimised={minimised}"));
     if visible && !minimised {
         hide_main_window(window);
     } else {
@@ -2314,16 +2315,35 @@ const MAIN_TITLE: &str = "Envy";
 /// tiled window is the layout's to place. Windows keeps a hidden window's
 /// place itself.
 pub(crate) fn show_main_window(window: &WebviewWindow) {
+    let before = window.is_visible().unwrap_or(false);
     let _ = window.show();
     let _ = window.unminimize();
     let _ = window.set_focus();
+    runtime_log(&format!(
+        "show main: visible before={before} after={} pos={:?}",
+        window.is_visible().unwrap_or(false),
+        window.outer_position().ok().map(|p| (p.x, p.y))
+    ));
+    // Same reason as in hide_main_window: the eye must open on the show
+    // itself, not on a focus event that may already have happened.
+    tray::refresh(window.app_handle());
 }
 
 /// Every way the main window is dismissed goes through here, so where the
 /// user left it is written down before Hyprland forgets it.
 pub(crate) fn hide_main_window(window: &WebviewWindow) {
     remember_main_geometry(window.app_handle());
-    let _ = window.hide();
+    let before = window.is_visible().unwrap_or(false);
+    let hid = window.hide();
+    runtime_log(&format!(
+        "hide main: visible before={before} hide={hid:?} visible after={}",
+        window.is_visible().unwrap_or(false)
+    ));
+    // The eye follows focus events, and on Windows a click on the tray blurs
+    // the webview before the toggle hides the window, so that refresh reads
+    // "still visible" and nothing fires after the hide. Redraw from here,
+    // once the hide has been applied.
+    tray::refresh(window.app_handle());
 }
 
 /// The last place the main window was seen, for the map hook to check.
@@ -2348,6 +2368,15 @@ pub(crate) fn sync_place_rule(app: &tauri::AppHandle) {
 /// pinned panel does: a hide that skips the remembering forgets the place.
 #[tauri::command]
 fn hide_main(app: tauri::AppHandle) {
+    runtime_log("hide_main invoked");
+    // A blur caused by a click on the tray icon is not a dismissal: the click
+    // is about to toggle the window itself, and hiding here first would only
+    // make that toggle show it again.
+    #[cfg(windows)]
+    if focus_windows::foreground_is_shell_tray() {
+        runtime_log("hide_main: foreground is the tray, leaving it to the toggle");
+        return;
+    }
     if let Some(w) = app.get_webview_window("main") {
         hide_main_window(&w);
     }

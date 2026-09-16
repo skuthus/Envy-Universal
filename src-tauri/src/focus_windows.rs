@@ -30,8 +30,8 @@ use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
 use windows::Win32::System::Threading::GetCurrentProcessId;
 use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetForegroundWindow, GetWindowThreadProcessId, IsWindowVisible, EVENT_SYSTEM_FOREGROUND,
-    WINEVENT_OUTOFCONTEXT,
+    GetClassNameW, GetForegroundWindow, GetWindowThreadProcessId, IsWindowVisible,
+    EVENT_SYSTEM_FOREGROUND, WINEVENT_OUTOFCONTEXT,
 };
 
 static APP: OnceLock<AppHandle> = OnceLock::new();
@@ -63,6 +63,37 @@ pub fn install(app: &AppHandle) {
     } else {
         crate::runtime_log("focus hook ready");
     }
+}
+
+/// The shell windows a click on the tray icon puts in the foreground. A
+/// focus-loss hide must not act on those: the click is about to reach the
+/// tray's own toggle, and a window hidden a moment earlier would only be
+/// shown again by it, so from the user's side the icon did nothing.
+const SHELL_TRAY_CLASSES: [&str; 4] = [
+    "Shell_TrayWnd",
+    "Shell_SecondaryTrayWnd",
+    "NotifyIconOverflowWindow",
+    "TopLevelWindowForOverflowXamlIsland",
+];
+
+fn class_of(hwnd: HWND) -> String {
+    let mut buf = [0u16; 128];
+    // SAFETY: hwnd came from the system; buf is a valid out-buffer.
+    let n = unsafe { GetClassNameW(hwnd, &mut buf) } as usize;
+    String::from_utf16_lossy(&buf[..n.min(buf.len())])
+}
+
+fn is_shell_tray(hwnd: HWND) -> bool {
+    let class = class_of(hwnd);
+    SHELL_TRAY_CLASSES.contains(&class.as_str())
+}
+
+/// Whether the foreground right now is the shell's tray — for `hide_main`,
+/// which the frontend's own blur handler calls in the same situation.
+pub(crate) fn foreground_is_shell_tray() -> bool {
+    // SAFETY: no preconditions.
+    let fg = unsafe { GetForegroundWindow() };
+    !fg.is_invalid() && is_shell_tray(fg)
 }
 
 fn pid_of(hwnd: HWND) -> u32 {
@@ -127,10 +158,11 @@ unsafe extern "system" fn on_foreground(
         // SAFETY: fg came from the system.
         let shown = unsafe { IsWindowVisible(fg).as_bool() };
         let cloaked = cloaked(fg);
+        let class = class_of(fg);
         crate::runtime_log(&format!(
-            "foreground to pid {pid} (visible={shown} cloaked={cloaked})"
+            "foreground to pid {pid} {class} (visible={shown} cloaked={cloaked})"
         ));
-        if !shown {
+        if !shown || is_shell_tray(fg) {
             return;
         }
         let main = app.clone();
@@ -138,11 +170,18 @@ unsafe extern "system" fn on_foreground(
             // Same guards as the frontend: the setting, and Keep on Top,
             // which would otherwise fight itself. The in-page Settings
             // overlay is the frontend's to know about and is not guarded here.
-            if !crate::config::hide_on_focus_loss() || crate::config::keep_on_top() {
+            let setting = crate::config::hide_on_focus_loss();
+            let on_top = crate::config::keep_on_top();
+            let Some(w) = app.get_webview_window("main") else {
+                crate::runtime_log("focus hook: no main window");
                 return;
-            }
-            let Some(w) = app.get_webview_window("main") else { return };
-            if !w.is_visible().unwrap_or(false) || w.is_minimized().unwrap_or(false) {
+            };
+            let visible = w.is_visible().unwrap_or(false);
+            let minimised = w.is_minimized().unwrap_or(false);
+            if !setting || on_top || !visible || minimised {
+                crate::runtime_log(&format!(
+                    "focus hook: not hiding (hide_on_focus_loss={setting} keep_on_top={on_top} visible={visible} minimised={minimised})"
+                ));
                 return;
             }
             crate::runtime_log(&format!("focus lost to pid {pid}: hiding main"));

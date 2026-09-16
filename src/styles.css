@@ -4,7 +4,11 @@
 
 * { box-sizing: border-box; }
 
-html.windows .linux-only { display: none; }
+/* The Settings rows carry an id-backed `display: flex` below, which outranks
+   a two-class selector, so the Windows build showed the Hyprland-only rows.
+   Both spellings, so the id one wins there too. */
+html.windows .linux-only,
+html.windows #settings-panel label.linux-only { display: none; }
 
 :root {
   /* Chrome scale and row padding, driven from Settings. Separate from the

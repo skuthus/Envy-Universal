@@ -10,7 +10,7 @@ use tauri::image::Image;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager};
-use tiny_skia::{FillRule, LineCap, LineJoin, Mask, Paint, PathBuilder, Pixmap, Stroke, Transform};
+use tiny_skia::{BlendMode, FillRule, LineCap, LineJoin, Paint, PathBuilder, Pixmap, Stroke, Transform};
 
 use crate::{
     create_and_pin, persisted_keep_on_top, run_update_check, toggle_keep_on_top,
@@ -317,8 +317,15 @@ const UPPER_L: (f32, f32) = (6.0, 4.3);
 const UPPER_R: (f32, f32) = (12.0, 4.3);
 const SQUINT_L: (f32, f32) = (6.0, 8.4);
 const SQUINT_R: (f32, f32) = (12.0, 8.4);
-const IRIS: (f32, f32, f32) = (9.0, 9.2, 2.5);
+const IRIS: (f32, f32, f32) = (9.0, 9.2, 2.375);
 const LINE: f32 = 2.0;
+/// Same enlargement as the Linux bar icon, so the two eyes are one drawing.
+const ZOOM: f32 = 1.14;
+
+/// Where a canvas point lands after the zoom.
+fn zoomed(p: f32) -> f32 {
+    (p - CANVAS / 2.0) * ZOOM + CANVAS / 2.0
+}
 
 fn lens_path(eye: Eye) -> Option<tiny_skia::Path> {
     let mut pb = PathBuilder::new();
@@ -344,20 +351,27 @@ fn lens_path(eye: Eye) -> Option<tiny_skia::Path> {
     pb.finish()
 }
 
+/// The Linux bar icon's drawing, pixel for pixel: the lens filled solid with
+/// the iris cleared out of it (a hole, so the taskbar shows through), then
+/// the rim stroked on top so the lid stays whole where it crosses the iris
+/// in a squint. A closed eye is only its lower lid.
 fn render_eye(eye: Eye, size: u32, colour: [u8; 3]) -> Option<Pixmap> {
     let mut pixmap = Pixmap::new(size, size)?;
     let scale = size as f32 / CANVAS;
-    let transform = Transform::from_scale(scale, scale);
+    let shift = scale * zoomed(0.0);
+    let transform = Transform::from_row(scale * ZOOM, 0.0, 0.0, scale * ZOOM, shift, shift);
     let mut paint = Paint::default();
     paint.set_color_rgba8(colour[0], colour[1], colour[2], 255);
     paint.anti_alias = true;
 
     let lens = lens_path(eye)?;
     if eye != Eye::Closed {
-        let mut mask = Mask::new(size, size)?;
-        mask.fill_path(&lens, FillRule::Winding, true, transform);
+        pixmap.fill_path(&lens, &paint, FillRule::Winding, transform, None);
         let iris = PathBuilder::from_circle(IRIS.0, IRIS.1, IRIS.2)?;
-        pixmap.fill_path(&iris, &paint, FillRule::Winding, transform, Some(&mask));
+        let mut clear = Paint::default();
+        clear.blend_mode = BlendMode::Clear;
+        clear.anti_alias = true;
+        pixmap.fill_path(&iris, &clear, FillRule::Winding, transform, None);
     }
     let stroke = Stroke {
         width: LINE,
