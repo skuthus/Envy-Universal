@@ -27,6 +27,8 @@ pub mod themes;
 mod tray;
 #[cfg(windows)]
 pub mod boot_windows;
+#[cfg(windows)]
+mod focus_windows;
 
 #[cfg(not(target_os = "linux"))]
 #[allow(dead_code)]
@@ -3186,6 +3188,8 @@ pub fn run() {
                     ensure_main_visible(app);
                     #[cfg(windows)]
                     boot_windows::dismiss();
+                    #[cfg(windows)]
+                    focus_windows::install(app);
                     schedule_tray(app);
                 }
                 tauri::RunEvent::ExitRequested { api, code, .. } => {

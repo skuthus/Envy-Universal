@@ -1039,6 +1039,14 @@ pub fn keep_on_top() -> bool {
         .unwrap_or(false)
 }
 
+/// `system.hide_on_focus_loss`. The frontend owns the hide on the Mac and
+/// Linux; Windows does it from the foreground hook (see focus_windows.rs).
+pub fn hide_on_focus_loss() -> bool {
+    value_of("system", "hide_on_focus_loss")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+}
+
 /// Whether the Index scans subfolders. Rust needs it when it re-opens the
 /// store after a `vault` change made in the file.
 pub fn include_subfolders() -> bool {
