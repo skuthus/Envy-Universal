@@ -46,7 +46,9 @@ notify.workspace = true
 ksni = { version = "0.3", features = ["blocking"] }
 gtk = "0.18"
 # Same crate Tauri already links; used to turn off WebKit's ~60 fps page-update
-# cap so scrolling can follow the display (see linux_refresh.rs).
+# cap so scrolling can follow the display (see linux_refresh.rs). The crate's
+# feature ladder stops at v2_40; the Feature APIs themselves are Since: 2.42
+# and are soft-resolved at runtime so an older libwebkit does not crash launch.
 webkit2gtk = { version = "2", features = ["v2_40"] }
 
 [dev-dependencies]

@@ -22,7 +22,8 @@ pkgdesc="Flat-file, frictionless note-taking that follows the Omarchy theme"
 arch=('x86_64' 'aarch64')
 url="https://github.com/skuthus/Envy-Universal"
 license=('MIT')
-depends=('webkit2gtk-4.1' 'gtk3')
+# Feature-flag pacing APIs used at runtime need 2.42+ (see linux_refresh.rs).
+depends=('webkit2gtk-4.1>=2.42' 'gtk3')
 # Envy runs on any Wayland or X11 desktop; Hyprland unlocks the summon bind,
 # tiling settings and Keep on Top, and Omarchy the bar widget and theme.
 optdepends=('hyprland: Ctrl+Alt+Return summon bind, tiled/floating settings, Keep on Top'

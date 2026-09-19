@@ -87,7 +87,21 @@ function clampRun(run: Run) {
   run.y.target = Math.min(maxY, Math.max(0, run.y.target))
 }
 
+function drifted(run: Run): boolean {
+  return (
+    Math.abs(run.el.scrollTop - run.y.current) > 2 ||
+    Math.abs(run.el.scrollLeft - run.x.current) > 2
+  )
+}
+
 function tick(run: Run, now: number) {
+  // Scrollbar drag, trackpad momentum, or a programmatic jump moved the
+  // scroller; stop writing over it instead of fighting until the ease settles.
+  if (drifted(run)) {
+    run.frame = 0
+    runs.delete(run.el)
+    return
+  }
   const dt = Math.min(0.032, Math.max(0, (now - run.last) / 1000))
   run.last = now
   const k = 1 - Math.exp(-dt / TAU)
@@ -108,23 +122,38 @@ function tick(run: Run, now: number) {
   }
 }
 
+/// Drop any in-flight glide on `start` or its scrollable ancestors so a
+/// trackpad / scrollbar / keyboard jump owns the scroller immediately.
+function cancelRunsFrom(start: EventTarget | null) {
+  let n: Element | null = start instanceof Element ? start : null
+  while (n) {
+    if (n instanceof HTMLElement && runs.has(n)) cancelSmoothScroll(n)
+    n = n.parentElement
+  }
+}
+
 function onWheel(e: WheelEvent) {
   if (e.defaultPrevented || e.ctrlKey) return
   if (reducedMotion()) return
   const rawTarget = e.target
   if (rawTarget instanceof HTMLTextAreaElement || rawTarget instanceof HTMLSelectElement) return
 
+  // Pixel-mode deltas (trackpad, high-res wheel) already arrive smooth and
+  // high-rate; the platform scrolls them directly, momentum and all. Easing
+  // them only adds ~TAU of latency, so hand them back — and cancel any
+  // line-mode glide still writing scrollTop, or the two fight for a frame.
+  // Per-app sensitivity, if ever wanted, belongs in Hyprland's
+  // `scroll_touchpad` window rule, not here. Interpolation is reserved for
+  // discrete line/page ticks.
+  if (e.deltaMode === WheelEvent.DOM_DELTA_PIXEL) {
+    cancelRunsFrom(e.target)
+    return
+  }
+
   const signX = e.shiftKey && e.deltaX === 0 ? e.deltaY : e.deltaX
   const signY = e.shiftKey && e.deltaX === 0 ? 0 : e.deltaY
   const el = scrollerFrom(e.target, signX, signY)
   if (!el) return
-
-  // Pixel-mode deltas (trackpad, high-res wheel) already arrive smooth and
-  // high-rate; the platform scrolls them directly, momentum and all. Easing
-  // them only adds ~TAU of latency, so hand them back. Per-app sensitivity, if
-  // ever wanted, belongs in Hyprland's `scroll_touchpad` window rule, not here.
-  // Interpolation is reserved for discrete line/page ticks.
-  if (e.deltaMode === WheelEvent.DOM_DELTA_PIXEL) return
 
   const { x, y } = pxDelta(e, el)
   if (x === 0 && y === 0) return
@@ -142,7 +171,7 @@ function onWheel(e: WheelEvent) {
       last: performance.now(),
     }
     runs.set(el, run)
-  } else if (Math.abs(el.scrollTop - run.y.current) > 2 || Math.abs(el.scrollLeft - run.x.current) > 2) {
+  } else if (drifted(run)) {
     // Scrollbar drag or a programmatic jump moved the scroller out from
     // under the interpolation; catch up rather than fighting it.
     run.x.current = el.scrollLeft
@@ -181,7 +210,7 @@ export function smoothScrollTo(el: HTMLElement, top: number) {
       last: performance.now(),
     }
     runs.set(el, run)
-  } else if (Math.abs(el.scrollTop - run.y.current) > 2 || Math.abs(el.scrollLeft - run.x.current) > 2) {
+  } else if (drifted(run)) {
     // Something else moved the scroller since the last frame; continue from
     // where it actually is rather than snapping back to the animation's idea.
     run.x.current = el.scrollLeft
